@@ -4,7 +4,7 @@ license="Not specified"
 
 [[mods]]
 modId="wifi"
-version="2.0.0"
+version="2.0.1"
 displayName="Wi-Fi Router"
 authors="zeroS"
 description='Adds a programmable local network router peripheral for CC:Tweaked.'
