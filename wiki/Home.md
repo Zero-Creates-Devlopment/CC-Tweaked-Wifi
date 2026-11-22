@@ -14,7 +14,6 @@ Each router has a WAN address derived from its dimension and coordinates. LAN ad
 
 ## Documentation
 
-- [Installation](Installation)
 - [Quick Start](Quick-Start)
 - [API Reference](API-Reference)
 - [Configuration](Configuration)
