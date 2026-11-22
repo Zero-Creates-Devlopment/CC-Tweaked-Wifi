@@ -1,18 +1,18 @@
 # Wi-Fi Router
 
-A standalone NeoForge mod for Minecraft 1.21.1 that adds a craftable router block with a CC:Tweaked peripheral.
+A standalone NeoForge mod for Minecraft 26.3 that adds a craftable router block with a CC:Tweaked peripheral.
 
 ## Requirements
 
-- Minecraft 1.21.1
-- NeoForge 21.1.265 or newer in the 21.1 line
-- CC:Tweaked 1.121.0 for Minecraft 1.21.1 / NeoForge
+- Minecraft 26.3
+- NeoForge 26.3.0.115 or newer in the 26.3 line
+- CC:Tweaked 1.121.0 for Minecraft 26.3 / NeoForge
 
-The CC:Tweaked 1.121.0 NeoForge build is currently a pre-release. Install CC:Tweaked alongside this mod; it is a required runtime dependency.
+The CC:Tweaked 1.121.0 NeoForge build is currently a pre-release. Install CC:Tweaked alongside this mod; it is a required runtime dependency. Minecraft 26.3 requires Java 25.
 
 ## Build
 
-Run `.\gradlew.bat build` from this folder. The mod jar is written to `build\libs\wifi-<version>.jar`, where the version is set in `build.gradle` (currently `wifi-1.0.2.jar`).
+Run `.\gradlew.bat build` from this folder. The mod jar is written to `build\libs\wifi-<version>.jar`, where the version is set in `build.gradle`.
 
 Copy that jar and the CC:Tweaked jar into the Minecraft instance's `mods` folder.
 

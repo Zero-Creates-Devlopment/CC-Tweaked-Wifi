@@ -6,12 +6,13 @@ import dan200.computercraft.api.lua.LuaException;
 import dan200.computercraft.api.peripheral.IComputerAccess;
 import dan200.computercraft.api.peripheral.IPeripheral;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 import org.jetbrains.annotations.Nullable;
 
 import javax.crypto.Mac;
@@ -105,7 +106,7 @@ public final class WifiRouterPeripheral implements IPeripheral {
 
 	@LuaFunction(mainThread = true)
 	public final String getWanIP() {
-		return target.getLevel().dimension().location() + "." + target.getBlockPos().getX() + "."
+		return target.getLevel().dimension().identifier() + "." + target.getBlockPos().getX() + "."
 				+ target.getBlockPos().getY() + "." + target.getBlockPos().getZ();
 	}
 
@@ -744,18 +745,14 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		return result;
 	}
 
-	void save(CompoundTag tag) {
-		tag.putString("Ssid", ssid);
-		tag.putString("Password", password);
+	void save(ValueOutput output) {
+		output.putString("Ssid", ssid);
+		output.putString("Password", password);
 	}
 
-	synchronized void load(CompoundTag tag) {
-		if (tag.contains("Ssid")) {
-			ssid = tag.getString("Ssid");
-		}
-		if (tag.contains("Password")) {
-			password = tag.getString("Password");
-		}
+	synchronized void load(ValueInput input) {
+		ssid = input.getStringOr("Ssid", ssid);
+		password = input.getStringOr("Password", password);
 	}
 
 	private void requireAttached(IComputerAccess computer) {
