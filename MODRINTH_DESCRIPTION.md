@@ -1,6 +1,6 @@
 # Wi-Fi Router
 
-Add configurable Wi-Fi-style networking to your ComputerCraft world with a craftable router block for **Minecraft 26.3**, **NeoForge**, and **CC:Tweaked**.
+Add configurable Wi-Fi-style networking to your ComputerCraft world with a craftable router block for **NeoForge** and **CC:Tweaked**.
 
 Routers create separate LANs with DHCP-assigned IP addresses, domain names mapped to individual computers, and message passing. Router bridges share domain records with directly linked WAN peers, allowing a sender to address a computer by name instead of supplying its router WAN address and LAN IP.
 
@@ -19,9 +19,8 @@ The `wifi` Lua module is available globally. Client computers can discover and j
 
 ## Requirements
 
-- Minecraft 26.3
-- NeoForge 26.3.0.115 or newer
-- CC:Tweaked 1.121.0 or newer for Minecraft 26.3 / NeoForge
+- NeoForge
+- CC:Tweaked
 
 Install both the mod and CC:Tweaked in your `mods` folder. A CC:Tweaked wireless modem is required for air connections and discovery; no GPS network is required.
 
