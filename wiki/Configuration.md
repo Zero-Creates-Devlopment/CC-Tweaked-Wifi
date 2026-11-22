@@ -7,8 +7,8 @@ Wi-Fi Router registers a NeoForge synced server configuration. Its settings are 
 | `wirelessRange` | 60 | 1-1024 | Block radius for nearby-router scans from an attached router, restricted to loaded chunks. Does **not** control wireless modem reach. |
 | `maxClients` | 155 | 1-254 | Maximum connected LAN clients per router. |
 | `maxInboxSize` | 64 | 1-4096 | Maximum queued messages per client; the oldest is discarded when full. |
-| `announceIntervalSeconds` | 3 | 1-60 | Seconds between bridge discovery announcements. |
-| `peerTimeoutSeconds` | 12 | 3-300 | Seconds before an inactive WAN peer expires. Keep this above the announce interval. |
+| `announceIntervalSeconds` | 3 | 1-60 | Seconds between wireless bridge discovery beacons. |
+| `peerTimeoutSeconds` | 12 | 3-300 | Legacy option retained for compatibility; server-wide routing does not use it. |
 
 For example:
 
@@ -30,9 +30,8 @@ From a computer attached to the router:
 ```lua
 local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
-assert(wifi.configureWan("replace-with-a-long-random-secret"))
 ```
 
-The SSID must be nonblank and at most 32 characters. The password must be empty for an open LAN or 8-63 characters. Changing either disconnects LAN clients. The WAN secret must be empty to disable WAN linking or 16-128 characters; changing it clears peer routes and queued WAN packets. Use the same strong secret on routers intended to link.
+The SSID must be nonblank and at most 32 characters. The password must be empty for an open LAN or 8-63 characters. Changing either disconnects LAN clients. Loaded routers communicate automatically without a WAN secret.
 
-Credentials and the WAN secret are stored in router world data. Protect world backups and attached computers. See [Security](Security).
+LAN credentials are stored in router world data. Protect world backups and attached computers. See [Security](Security).

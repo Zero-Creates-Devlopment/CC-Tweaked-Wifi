@@ -7,7 +7,6 @@ import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.TagValueOutput;
 
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -55,26 +54,6 @@ public final class WifiAirSecurityChecks {
 		reject(() -> WifiAirSessions.open(null, WAN, 3, true, sensitive, true));
 		WifiAirSessions.removeRouter(null, WAN);
 		reject(() -> WifiAirSessions.seal(null, WAN, 1, true, "removed"));
-		WifiWanCrypto.startServer(null);
-		byte[] secret = "shared secret one".getBytes(StandardCharsets.UTF_8);
-		byte[] encrypted = WifiWanCrypto.encrypt(null, "domain record".getBytes(StandardCharsets.UTF_8), secret);
-		check("domain record".equals(new String(WifiWanCrypto.decrypt(null, encrypted, secret), StandardCharsets.UTF_8)),
-				"WAN decrypt failed");
-		try {
-			WifiWanCrypto.decrypt(null, encrypted, "shared secret two".getBytes(StandardCharsets.UTF_8));
-			throw new AssertionError("WAN packets must reject a different secret");
-		} catch (GeneralSecurityException expected) {
-			// A mismatched secret must fail authentication.
-		}
-		WifiWanCrypto.stopServer(null);
-		WifiWanCrypto.startServer(null);
-		try {
-			WifiWanCrypto.decrypt(null, encrypted, secret);
-			throw new AssertionError("WAN packets must not survive server key rotation");
-		} catch (GeneralSecurityException expected) {
-			// A new server key must reject old packets.
-		}
-		WifiWanCrypto.stopServer(null);
 		check(WifiRouterPeripheral.matchesDestinationDomain("storage.example", "storage.example"),
 				"current domain owner should receive the packet");
 		check(!WifiRouterPeripheral.matchesDestinationDomain("storage.example", null)
@@ -82,6 +61,41 @@ public final class WifiAirSecurityChecks {
 				"stale domain routes must not deliver to a different LAN client");
 		check(WifiRouterPeripheral.matchesDestinationDomain("", null),
 				"explicit WAN and LAN addresses must remain supported");
+		WifiRouterNetwork network = new WifiRouterNetwork();
+		TestRouter home = new TestRouter("minecraft:overworld.1.2.3");
+		TestRouter remote = new TestRouter("minecraft:the_nether.400.60.-200");
+		home.domains.put("home.example", "192.168.1.100");
+		remote.domains.put("storage.example", "192.168.1.101");
+		remote.domains.put("offline.example", "");
+		network.register(home);
+		network.register(remote);
+		check(network.records().size() == 3, "loaded routers must share online and offline reservations");
+		check(new WifiRouterNetwork().records().isEmpty(), "router networks must not share server state");
+		check(network.resolve("storage.example").equals(new WifiRouterNetwork.Route(remote.wan, "192.168.1.101")),
+				"cross-dimension domain lookup failed");
+		check(network.resolve("offline.example") == null && network.hasOtherClaim("offline.example", home.wan),
+				"offline reservation must remain visible and protected");
+		Map<String, Object> message = Map.of("message", "hello");
+		check(network.deliver(remote.wan, message) && remote.received == message,
+				"server-wide routing failed");
+		home.domains.put("storage.example", "");
+		check(network.resolve("storage.example") == null, "conflicting reservations must be ambiguous");
+		home.domains.remove("storage.example");
+		network.unregister(remote);
+		check(network.resolve("storage.example") == null && !network.deliver(remote.wan, message),
+				"unloaded routers must not remain reachable");
+		network.register(remote);
+		check(network.resolve("storage.example") != null, "reloaded routers must share domains again");
+		TestRouter replacement = new TestRouter(remote.wan);
+		network.register(replacement);
+		network.unregister(remote);
+		check(network.deliver(remote.wan, message) && replacement.received == message,
+				"unloading an old router must not remove its replacement");
+		for (java.lang.reflect.Method method : WifiRouterPeripheral.class.getMethods()) {
+			check(!method.getName().equals("configureWan") && !method.getName().equals("registerPeerDomain")
+					&& !method.getName().equals("receiveWAN"),
+					"legacy WAN control endpoints must not be exposed");
+		}
 		WifiDomainReservations reservations = new WifiDomainReservations();
 		String owner = "a".repeat(64);
 		String stranger = "b".repeat(64);
@@ -141,5 +155,31 @@ public final class WifiAirSecurityChecks {
 	@FunctionalInterface
 	private interface Checked {
 		void run() throws Exception;
+	}
+
+	private static final class TestRouter implements WifiRouterNetwork.Router {
+		private final String wan;
+		private final Map<String, String> domains = new LinkedHashMap<>();
+		private Map<String, Object> received;
+
+		private TestRouter(String wan) {
+			this.wan = wan;
+		}
+
+		@Override
+		public String getWanIP() {
+			return wan;
+		}
+
+		@Override
+		public Map<String, String> localDomains() {
+			return domains;
+		}
+
+		@Override
+		public boolean deliverWan(Map<String, Object> packet) {
+			received = packet;
+			return true;
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package net.mcreator.wifi;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
@@ -15,6 +16,34 @@ public class WifiRouterBlockEntity extends BlockEntity {
 
 	public WifiRouterPeripheral peripheral() {
 		return peripheral;
+	}
+
+	@Override
+	public void onLoad() {
+		super.onLoad();
+		MinecraftServer server = level == null ? null : level.getServer();
+		if (server != null) {
+			WifiRouterNetwork.forServer(server).register(peripheral);
+		}
+	}
+
+	@Override
+	public void onChunkUnloaded() {
+		unregister();
+		super.onChunkUnloaded();
+	}
+
+	@Override
+	public void setRemoved() {
+		unregister();
+		super.setRemoved();
+	}
+
+	private void unregister() {
+		MinecraftServer server = level == null ? null : level.getServer();
+		if (server != null) {
+			WifiRouterNetwork.forServer(server).unregister(peripheral);
+		}
 	}
 
 	@Override

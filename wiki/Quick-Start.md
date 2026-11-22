@@ -60,12 +60,6 @@ assert(token, reason)
 
 The token is saved automatically on the computer. Anyone with it can claim or release the reservation, so protect backups. If every copy is lost, the reservation cannot be reclaimed or released through the API. See [Security](Security) for recovery and limitations.
 
-## 5. Optional: link routers
+## 5. Use other routers
 
-On an attached computer at each router, configure the same strong, randomly generated secret:
-
-```lua
-assert(wifi.configureWan("replace-with-a-long-random-secret"))
-```
-
-Use your own secret of 16-128 characters. Run `wifi.run()` with a modem attached on each bridge. Their LAN credentials may differ. Bridges must be direct rednet peers; linking does not provide automatic multi-hop routing. See [Examples](Examples) for messaging.
+Loaded routers automatically share domain records and route messages server-wide, even across dimensions. No link, WAN secret, or modem connection between routers is required. Router chunks are not force-loaded. Wireless clients still need a running local bridge. See [Examples](Examples) for messaging.

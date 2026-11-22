@@ -6,17 +6,15 @@ Password-protected wireless packets use AES-256-GCM with random server-held sess
 
 Open LAN traffic is authenticated but readable. Sensitive ownership-token requests are encrypted even on an open LAN. Discovery and link-control traffic reveal metadata such as SSIDs and router addresses; timing and approximate packet sizes are also visible.
 
-## WAN
+## Server-wide routing
 
-WAN linking is disabled until each router is configured with the same shared secret. Use a strong random secret of 16-128 characters and share it only with trusted router operators.
+Loaded routers exchange domain records and messages internally on the server, including across dimensions. This traffic is not transmitted over rednet and does not use a WAN secret or WAN packet encryption. A successful send places the message in the recipient's inbox, but does not guarantee that the application reads it.
 
-WAN data and domain announcements use AES-256-GCM with a random server-held key bound to the shared secret. The key changes when the server restarts. Domain announcements are replay-checked, but **WAN data packets can be replayed while the server is running**. An accepted WAN send is queued, not guaranteed delivered.
-
-Bridges communicate with direct authenticated rednet peers, not through an automatic mesh. A trusted peer can still advertise conflicting domain names. Ambiguous names cannot be resolved or used for domain-addressed sends until the conflict is resolved.
+Ambiguous names cannot be resolved or used for domain-addressed sends until the conflict is resolved. A domain-addressed message is rejected if its destination no longer owns the name.
 
 ## Domain ownership
 
-`wifi.registerDomain(name)` generates and saves a random ownership token on first registration. The router stores only a SHA-256 hash of the token. Reservations survive disconnects and server restarts while the router block remains in the world. The router advertises offline reservations to currently linked peers, but disconnected routers cannot coordinate independent claims.
+`wifi.registerDomain(name)` generates and saves a random ownership token on first registration. The router stores only a SHA-256 hash of the token. Reservations survive disconnects and server restarts while the router block remains in the world. Loaded routers see each other's offline reservations and prevent conflicting new claims. Reservations on unloaded routers are not visible; independent claims can conflict when those routers load.
 
 The token is saved under `/.wifi-domains/tokens` on the computer. **Anyone with the token can reclaim or release the domain.** Back it up privately with `wifi.exportDomainToken(name)`. To transfer or recover ownership, import it on another computer with `wifi.importDomainToken(name, token)`, connect to the original router, and register the domain after the previous owner disconnects. Import refuses to overwrite a different saved token.
 
@@ -24,4 +22,4 @@ The token is saved under `/.wifi-domains/tokens` on the computer. **Anyone with 
 
 ## Trust boundaries
 
-LAN credentials and the WAN secret are stored in router world data. Protect world files, attached computers, and token backups. Trust computers attached to routers, token holders, and holders of the WAN secret; the mod does not authenticate individual user accounts.
+LAN credentials are stored in router world data. Protect world files, attached computers, and token backups. Trust computers attached to routers and token holders; the mod does not authenticate individual user accounts.
