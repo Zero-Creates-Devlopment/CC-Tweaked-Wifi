@@ -1,0 +1,66 @@
+<h1>Wi-Fi Router</h1>
+
+<p>Add configurable Wi-Fi-style networking to your ComputerCraft world with a craftable router block for <strong>Minecraft 1.21.1</strong>, <strong>NeoForge</strong>, and <strong>CC:Tweaked</strong>.</p>
+
+<p>Routers create separate LANs with DHCP-assigned IP addresses, domain names mapped to individual computers, and message passing. Router bridges share domain records with directly linked WAN peers, allowing a sender to address a computer by name instead of supplying its router WAN address and LAN IP.</p>
+
+<p>The <code>wifi</code> Lua module is available globally. Client computers can discover and join routers over the air with a wireless modem, without GPS setup or a wired/peripheral connection. A bridge computer running <code>wifi.run()</code> must remain attached to each router.</p>
+
+<h2>Features</h2>
+<ul>
+  <li><strong>SSID and password settings</strong> for each router. Changing credentials disconnects current LAN clients.</li>
+  <li><strong>Configurable nearby-router discovery:</strong> attached routers scan loaded chunks within 60 blocks by default. Wireless reach depends on the CC:Tweaked modem network.</li>
+  <li><strong>Nearby router discovery</strong> without GPS setup.</li>
+  <li><strong>LAN and WAN domains</strong> that map a name to a specific computer and support domain-based WAN messaging.</li>
+  <li><strong>WAN routing</strong> between routers using <code>dimension.x.y.z</code> addresses.</li>
+  <li><strong>Wired and wireless router links</strong> through CC:Tweaked modems and rednet.</li>
+  <li><strong>Lua module API:</strong> connect, register domains, inspect known records, and send or receive messages with <code>require("wifi")</code>.</li>
+  <li><strong>Automatic WAN data encryption:</strong> WAN messages are encrypted and authenticated with AES-256-GCM when sent and decrypted when received, using a random in-memory server key.</li>
+</ul>
+
+<h2>Requirements</h2>
+<ul>
+  <li>Minecraft 1.21.1</li>
+  <li>NeoForge 21.1.265 or newer in the 21.1 line</li>
+  <li>CC:Tweaked 1.121.0 for Minecraft 1.21.1 / NeoForge</li>
+</ul>
+
+<p>Install both the mod and CC:Tweaked in your <code>mods</code> folder. A CC:Tweaked wireless modem is required for air connections and discovery; no GPS network is required.</p>
+
+<h2>Quick start</h2>
+<p>Attach a computer to the router to configure its network:</p>
+<pre><code>local wifi = require("wifi")
+assert(wifi.configureWifi("WorkshopNet", "change-me-123"))</code></pre>
+
+<p>For wireless clients and WAN links, keep a bridge computer attached to each router. Each bridge needs a CC:Tweaked modem:</p>
+<pre><code>local wifi = require("wifi")
+wifi.run()</code></pre>
+
+<p>On a client computer, join the network and register a domain:</p>
+<pre><code>local wifi = require("wifi")
+local connected, reason = wifi.connect("WorkshopNet", "change-me-123")
+assert(connected, reason)
+print("LAN IP:", wifi.getIP())
+assert(wifi.registerDomain("storage.example"))</code></pre>
+
+<p>From another connected computer, send a message to the domain:</p>
+<pre><code>local wifi = require("wifi")
+local sent, reason = wifi.send("storage.example", { message = "hello" })
+print(sent, reason)</code></pre>
+
+<p>On the destination computer, read the next packet:</p>
+<pre><code>local packet, reason = wifi.receive(5)
+if packet then
+  print(textutils.serialize(packet))
+else
+  print(reason or "No message received")
+end</code></pre>
+
+<p>Use <code>wifi.listNearbyRouters()</code> to discover routers, <code>wifi.getStatus()</code> to inspect your connection, and <code>wifi.getDomainRecords()</code> to list known local and directly linked peer domains. Domains must be unique across linked routers.</p>
+
+<p>Use wireless modems for over-air links or wired modems for cable connections. Routers do not need matching LAN SSIDs or passwords to link over WAN. WAN sends require a direct peer route, and accepting a send does not guarantee delivery.</p>
+
+<h2>Configuration and security notes</h2>
+<p>The per-world server config includes attached-router discovery range, maximum LAN clients, inbox capacity, and bridge discovery timing. WAN data is automatically encrypted before transmission and decrypted on receipt. The random key is never saved or sent over rednet, so packets from before a server restart cannot be decrypted afterward. Router discovery and domain announcements are not encrypted; they can reveal SSIDs, router addresses, registered domains, and LAN IPs. The WAN link proof uses a publicly known value and is not secure peer authentication. Wireless LAN messages are not encrypted. Rednet also reveals traffic timing and approximate packet size.</p>
+
+<p>This mod provides an <strong>in-game network</strong>, not a connection to real Wi-Fi or the internet.</p>
