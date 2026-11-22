@@ -33,17 +33,18 @@ final class WifiWanCrypto {
 		KEYS.remove(server);
 	}
 
-	static byte[] encrypt(MinecraftServer server, byte[] plaintext) throws GeneralSecurityException {
+	static byte[] encrypt(MinecraftServer server, byte[] plaintext, byte[] context) throws GeneralSecurityException {
 		byte[] nonce = new byte[NONCE_SIZE_BYTES];
 		RANDOM.nextBytes(nonce);
 		Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
 		cipher.init(Cipher.ENCRYPT_MODE, getKey(server), new GCMParameterSpec(TAG_SIZE_BITS, nonce));
 		cipher.updateAAD(ASSOCIATED_DATA);
+		cipher.updateAAD(context);
 		byte[] encrypted = cipher.doFinal(plaintext);
 		return ByteBuffer.allocate(nonce.length + encrypted.length).put(nonce).put(encrypted).array();
 	}
 
-	static byte[] decrypt(MinecraftServer server, byte[] encrypted) throws GeneralSecurityException {
+	static byte[] decrypt(MinecraftServer server, byte[] encrypted, byte[] context) throws GeneralSecurityException {
 		if (encrypted.length < NONCE_SIZE_BYTES + TAG_SIZE_BITS / Byte.SIZE) {
 			throw new GeneralSecurityException("Encrypted WAN packet is too short");
 		}
@@ -56,6 +57,7 @@ final class WifiWanCrypto {
 		Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
 		cipher.init(Cipher.DECRYPT_MODE, getKey(server), new GCMParameterSpec(TAG_SIZE_BITS, nonce));
 		cipher.updateAAD(ASSOCIATED_DATA);
+		cipher.updateAAD(context);
 		return cipher.doFinal(ciphertext);
 	}
 

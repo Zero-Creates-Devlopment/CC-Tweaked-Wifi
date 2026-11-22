@@ -11,11 +11,12 @@
   <li><strong>SSID and password settings</strong> for each router. Changing credentials disconnects current LAN clients.</li>
   <li><strong>Configurable nearby-router discovery:</strong> attached routers scan loaded chunks within 60 blocks by default. Wireless reach depends on the CC:Tweaked modem network.</li>
   <li><strong>Nearby router discovery</strong> without GPS setup.</li>
-  <li><strong>LAN and WAN domains</strong> that map a name to a specific computer and support domain-based WAN messaging.</li>
+  <li><strong>Persistent LAN and WAN domains</strong> protected by ownership tokens, including offline reservations advertised to linked peers.</li>
   <li><strong>WAN routing</strong> between routers using <code>dimension.x.y.z</code> addresses.</li>
   <li><strong>Wired and wireless router links</strong> through CC:Tweaked modems and rednet.</li>
   <li><strong>Lua module API:</strong> connect, register domains, inspect known records, and send or receive messages with <code>require("wifi")</code>.</li>
-  <li><strong>Automatic WAN data encryption:</strong> WAN messages are encrypted and authenticated with AES-256-GCM when sent and decrypted when received, using a random in-memory server key.</li>
+  <li><strong>Protected traffic:</strong> password-protected wireless LAN packets and WAN data use authenticated encryption; open LAN packets are authenticated but remain readable.</li>
+  <li><strong>Protected domain announcements:</strong> trusted WAN routers use a shared secret and reject forged or replayed records.</li>
 </ul>
 
 <h2>Requirements</h2>
@@ -32,6 +33,9 @@
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))</code></pre>
 
 <p>For wireless clients and WAN links, keep a bridge computer attached to each router. Each bridge needs a CC:Tweaked modem:</p>
+<p>First configure the same strong, randomly generated WAN secret on each trusted router. WAN linking is disabled until configured:</p>
+<pre><code>local wifi = require("wifi")
+assert(wifi.configureWan("replace-with-a-long-random-secret"))</code></pre>
 <pre><code>local wifi = require("wifi")
 wifi.run()</code></pre>
 
@@ -41,6 +45,7 @@ local connected, reason = wifi.connect("WorkshopNet", "change-me-123")
 assert(connected, reason)
 print("LAN IP:", wifi.getIP())
 assert(wifi.registerDomain("storage.example"))</code></pre>
+<p>Registration saves an ownership token on the computer and reserves the name on the router across disconnects and restarts. Back it up privately with <code>wifi.exportDomainToken("storage.example")</code>; import it on another computer with <code>wifi.importDomainToken(name, token)</code>. Only a token holder can release a reservation with <code>wifi.releaseDomain(name)</code>. Losing every copy of a token makes that reservation unrecoverable through the API.</p>
 
 <p>From another connected computer, send a message to the domain:</p>
 <pre><code>local wifi = require("wifi")
@@ -57,9 +62,9 @@ end</code></pre>
 
 <p>Use <code>wifi.listNearbyRouters()</code> to discover routers, <code>wifi.getStatus()</code> to inspect your connection, and <code>wifi.getDomainRecords()</code> to list known local and directly linked peer domains. Domains must be unique across linked routers.</p>
 
-<p>Use wireless modems for over-air links or wired modems for cable connections. Routers do not need matching LAN SSIDs or passwords to link over WAN. WAN sends require a direct peer route, and accepting a send does not guarantee delivery.</p>
+<p>Use wireless modems for over-air links or wired modems for cable connections. Routers need matching WAN secrets but do not need matching LAN SSIDs or passwords. WAN sends require a direct peer route, and accepting a send does not guarantee delivery.</p>
 
 <h2>Configuration and security notes</h2>
-<p>The per-world server config includes attached-router discovery range, maximum LAN clients, inbox capacity, and bridge discovery timing. WAN data is automatically encrypted before transmission and decrypted on receipt. The random key is never saved or sent over rednet, so packets from before a server restart cannot be decrypted afterward. Router discovery and domain announcements are not encrypted; they can reveal SSIDs, router addresses, registered domains, and LAN IPs. The WAN link proof uses a publicly known value and is not secure peer authentication. Wireless LAN messages are not encrypted. Rednet also reveals traffic timing and approximate packet size.</p>
+<p>Wireless sessions and WAN data use random server-held keys. Open LAN traffic is authenticated but not encrypted, except ownership tokens, which are always encrypted in transit. WAN domain announcements are authenticated, encrypted, and replay-checked. Offline reservations are advertised to linked peers; unlinked routers cannot coordinate and conflicting names become ambiguous. Domain-addressed WAN packets are rejected if the destination no longer owns the name, but WAN data packets can still be replayed while the server is running. Reservations persist while the router block remains in the world. Trust only attached computers and routers with the shared WAN secret; tokens are stored on computers, and the WAN secret and LAN password are saved in world data. Discovery reveals router information, and rednet reveals traffic timing and approximate packet size. Use strong passwords because captured login proofs may allow offline guessing.</p>
 
 <p>This mod provides an <strong>in-game network</strong>, not a connection to real Wi-Fi or the internet.</p>

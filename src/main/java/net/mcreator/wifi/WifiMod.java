@@ -1,6 +1,7 @@
 package net.mcreator.wifi;
 
 import dan200.computercraft.api.peripheral.PeripheralCapability;
+import dan200.computercraft.api.ComputerCraftAPI;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
@@ -65,6 +66,7 @@ public class WifiMod {
 			"wifi_router", () -> BlockEntityType.Builder.of(WifiRouterBlockEntity::new, WIFI_ROUTER.get()).build(null));
 
 	public WifiMod(IEventBus modEventBus, ModContainer modContainer) {
+		ComputerCraftAPI.registerAPIFactory(WifiAirSessions.Api::new);
 		modContainer.registerConfig(ModConfig.Type.SERVER, SERVER_CONFIG);
 		BLOCKS.register(modEventBus);
 		ITEMS.register(modEventBus);
@@ -81,6 +83,7 @@ public class WifiMod {
 
 	private void onServerStopping(ServerStoppingEvent event) {
 		WifiWanCrypto.stopServer(event.getServer());
+		WifiAirSessions.stopServer(event.getServer());
 	}
 
 	private void registerCapabilities(RegisterCapabilitiesEvent event) {
