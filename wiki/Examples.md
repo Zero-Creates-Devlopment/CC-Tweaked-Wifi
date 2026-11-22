@@ -48,7 +48,7 @@ local ok, reason = wifi.send("storage.example", { request = "inventory" })
 assert(ok, reason)
 ```
 
-Both computers must already be connected. The domain may belong to a directly linked router, but WAN acceptance only means the message was queued.
+Both computers must already be connected. The domain may belong to any loaded router on the server. A successful send places the message in the destination inbox.
 
 ## Reply using the source router
 
@@ -68,7 +68,7 @@ if packet then
 end
 ```
 
-This snippet assumes `wifi` is already required and connected. The sending and receiving router bridges must be running for WAN forwarding.
+This snippet assumes `wifi` is already required and connected. Wireless clients need their local bridge running.
 
 ## Inspect reservations
 
@@ -81,7 +81,7 @@ for _, record in ipairs(records) do
 end
 ```
 
-Offline reservations have an empty LAN IP. Names claimed independently on unlinked routers can become ambiguous when the routers link.
+Offline reservations have an empty LAN IP. Names claimed while another router is unloaded can become ambiguous when it loads.
 
 ## Back up and recover ownership
 

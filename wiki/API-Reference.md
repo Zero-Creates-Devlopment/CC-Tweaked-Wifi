@@ -42,11 +42,11 @@ Reserves and activates a name for the connected computer, returning `true` or `f
 
 ### `wifi.resolve(name [, routerName])`
 
-Returns the LAN IP of a unique online local or directly linked peer domain. Returns `""` when the name is offline, unavailable, or ambiguous; wireless lookup errors may return `nil, reason`. LAN IPs can repeat on different routers, so use the domain rather than the result as a remote send destination.
+Returns the LAN IP of a unique online domain on a loaded router. Returns `""` when the name is offline, unavailable, or ambiguous; wireless lookup errors may return `nil, reason`. LAN IPs can repeat on different routers, so use the domain rather than the result as a remote send destination.
 
 ### `wifi.getDomainRecords([routerName])`
 
-Returns an array of records `{ domain, lanIP, wanIP, online }`, or `nil, reason`. Offline records have `lanIP = ""` and `online = false`. Wireless lookups require a running bridge.
+Returns an array of records `{ domain, lanIP, wanIP, online }` from loaded routers, or `nil, reason`. Offline records have `lanIP = ""` and `online = false`. Wireless lookups require a running bridge.
 
 ### `wifi.exportDomainToken(name)`
 
@@ -68,11 +68,11 @@ Deletes the local token only; it does not release the reservation. Returns `true
 
 ### `wifi.send(recipient, message)`
 
-Sends to a local LAN IP or a unique online domain, including one announced by a directly linked router. Returns a boolean and may return a reason. Self-sends are rejected.
+Sends to a local LAN IP or a unique online domain on any loaded router. Returns a boolean and may return a reason. Self-sends are rejected.
 
 ### `wifi.sendWAN(destination, lanIP, message [, routerName])`
 
-Sends to a WAN address and its LAN IP, or to a domain using `wifi.sendWAN(domain, nil, message)`. The equivalent `wifi.send(destination, lanIP, message [, routerName])` form is also supported. WAN forwarding requires a running bridge and a direct peer route. An accepted WAN send is queued, not a delivery guarantee.
+Sends to a WAN address and its LAN IP, or to a domain using `wifi.sendWAN(domain, nil, message)`. The equivalent `wifi.send(destination, lanIP, message [, routerName])` form is also supported. Loaded routers route server-wide without linking. A successful send places the message in the destination inbox, but does not guarantee the application reads it. Wireless clients require their local bridge.
 
 Messages can be strings, numbers, booleans, or serializable non-cyclic tables. WAN payloads are limited to 64 KiB, 64 levels of nesting, and 65,536 table entries.
 
@@ -100,10 +100,6 @@ Returns the five network settings described in [Configuration](Configuration), o
 
 Sets LAN credentials. The SSID must be nonblank and at most 32 characters; the password must be empty or 8-63 characters. Changing credentials disconnects clients.
 
-### `wifi.configureWan(secret [, routerName])`
-
-Sets a shared WAN secret of 16-128 characters, or an empty string to disable WAN linking. Changing it clears peer routes and queued WAN packets.
-
 ### `wifi.run([routerName])`
 
-Runs the bridge loop on an attached computer with at least one wired or wireless modem. Only one computer can bridge a router at a time. Keep it running for wireless clients and WAN forwarding.
+Runs the bridge loop on an attached computer with at least one wired or wireless modem. Only one computer can bridge a router at a time. Keep it running for wireless clients; server-wide routing itself does not require a bridge.

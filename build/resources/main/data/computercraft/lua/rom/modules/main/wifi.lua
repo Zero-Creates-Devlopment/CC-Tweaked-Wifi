@@ -1,7 +1,6 @@
 -- Wi-Fi router client and bridge APIs.
 local M = {}
 
-local PROTOCOL = "wifi_router_v1"
 local CLIENT_PROTOCOL = "wifi_client_v1"
 local activeConnection
 
@@ -21,15 +20,6 @@ local function validWan(address)
     end
     local dimension, x, y, z = address:match("^(.+)%.(-?%d+)%.(-?%d+)%.(-?%d+)$")
     return dimension ~= nil and x ~= nil and y ~= nil and z ~= nil
-end
-
-local function validLan(address)
-    if type(address) ~= "string" then
-        return false
-    end
-    local host = address:match("^192%.168%.1%.(%d+)$")
-    host = tonumber(host)
-    return host ~= nil and host >= 1 and host <= 254
 end
 
 local function yieldExecution()
@@ -849,11 +839,6 @@ function M.configureWifi(ssid, password, routerName)
     return router.configureWifi(ssid, password)
 end
 
-function M.configureWan(secret, routerName)
-    local router = assert(getRouter(routerName), "No Wi-Fi Router peripheral found")
-    return router.configureWan(secret)
-end
-
 function M.listNearbyRouters(routerName, duration)
     if duration ~= nil and (type(duration) ~= "number" or duration <= 0 or duration > 60) then
         return nil, "Discovery duration must be between 0 and 60 seconds"
@@ -927,15 +912,8 @@ function M.run(routerName)
         local wanIP = linkInfo.wanIP
         local ssid = linkInfo.ssid
         local wifiRevision = linkInfo.revision
-        local wanRevision = linkInfo.wanRevision
-        local wanEnabled = linkInfo.wanEnabled
         local networkConfig = router.getNetworkConfig()
         local announceInterval = networkConfig.announceIntervalSeconds
-        local peerTimeout = networkConfig.peerTimeoutSeconds
-        local peers = {}
-        local challenges = {}
-        local challengeGeneration = 0
-        local remoteChallenges = {}
         local pendingAir = {}
         local airClients = {}
 
@@ -948,161 +926,7 @@ function M.run(routerName)
             rednet.send(clientID, { kind = "secure", ciphertext = protected }, CLIENT_PROTOCOL)
         end
 
-        local function drainWanPackets()
-            while true do
-                local packet = router.nextWanPacket()
-                if not packet then
-                    return
-                end
-                local peer = peers[packet.destinationWan]
-                if peer and os.epoch("utc") - peer.seen <= peerTimeout * 1000 then
-                    rednet.send(peer.computerID, {
-                        kind = "data",
-                        destinationWan = packet.destinationWan,
-                        ciphertext = packet.ciphertext,
-                    }, PROTOCOL)
-                else
-                    printError("wifi: destination peer route unavailable: " .. packet.destinationWan)
-                    peers[packet.destinationWan] = nil
-                    router.reportWANFailure(packet.sourceComputerId, packet.destinationWan)
-                end
-            end
-        end
-
-        local function sendDomainAnnouncement(peerWan)
-            local peer = peers[peerWan]
-            local remote = remoteChallenges[peerWan]
-            if peer and remote and remote.computerID == peer.computerID then
-                local ok, ciphertext = pcall(router.sealDomainAnnouncement, peerWan, remote.challenge)
-                if not ok then
-                    printError("wifi: could not protect domain announcement: " .. tostring(ciphertext))
-                    return
-                end
-                rednet.send(peer.computerID, {
-                    kind = "domains",
-                    wanIP = wanIP,
-                    ciphertext = ciphertext,
-                }, PROTOCOL)
-            end
-        end
-
-        local function handleDomainAnnouncement(senderID, packet)
-            if not validWan(packet.wanIP) or type(packet.ciphertext) ~= "string" then
-                printError("wifi: rejected malformed domain announcement")
-                return
-            end
-            local peer = peers[packet.wanIP]
-            if not peer or peer.computerID ~= senderID then
-                return
-            end
-            local ok, protected = pcall(router.openDomainAnnouncement, packet.wanIP, packet.ciphertext)
-            if not ok or type(protected) ~= "table" or protected.challenge ~= peer.challenge
-                    or type(protected.sequence) ~= "number" or protected.sequence <= peer.domainSequence then
-                printError("wifi: rejected unauthenticated or replayed domain announcement")
-                return
-            end
-            local domains = protected.records
-            if type(domains) ~= "table" or #domains > 254 then
-                printError("wifi: rejected malformed domain announcement")
-                return
-            end
-            local count = 0
-            for _, record in ipairs(domains) do
-                count = count + 1
-                if type(record) ~= "table" or type(record.domain) ~= "string"
-                        or #record.domain > 253
-                        or (record.lanIP ~= "" and not validLan(record.lanIP)) then
-                    printError("wifi: rejected malformed domain record")
-                    return
-                end
-            end
-            if count ~= #domains then
-                printError("wifi: rejected malformed domain list")
-                return
-            end
-            router.clearPeerDomains(packet.wanIP)
-            for _, record in ipairs(domains) do
-                if not router.registerPeerDomain(packet.wanIP, record.domain, record.lanIP) then
-                    printError("wifi: could not register peer domain " .. record.domain)
-                end
-            end
-            peer.domainSequence = protected.sequence
-            peer.seen = os.epoch("utc")
-        end
-
-        local function handleWanPacket(senderID, packet)
-            if type(packet) ~= "table" then
-                printError("wifi: rejected malformed WAN control packet")
-                return
-            end
-            if not wanEnabled then
-                return
-            end
-            if packet.kind == "hello" and validWan(packet.wanIP) and packet.wanIP ~= wanIP
-                    and type(packet.challenge) == "string"
-                    and #packet.challenge > 0 and #packet.challenge <= 128 then
-                local count = 0
-                for _ in pairs(remoteChallenges) do
-                    count = count + 1
-                end
-                if remoteChallenges[packet.wanIP] or count < 256 then
-                    remoteChallenges[packet.wanIP] = {
-                        computerID = senderID,
-                        challenge = packet.challenge,
-                        seen = os.epoch("utc"),
-                    }
-                else
-                    printError("wifi: too many pending WAN peers")
-                    return
-                end
-                rednet.send(senderID, {
-                    kind = "auth",
-                    wanIP = wanIP,
-                    ssid = ssid,
-                    challenge = packet.challenge,
-                    proof = router.makeLinkProof(packet.challenge, wanIP),
-                }, PROTOCOL)
-                sendDomainAnnouncement(packet.wanIP)
-            elseif packet.kind == "auth" and validWan(packet.wanIP) then
-                if packet.wanIP ~= wanIP and type(packet.challenge) == "string"
-                        and challenges[packet.challenge]
-                        and os.epoch("utc") <= challenges[packet.challenge].expires
-                        and not challenges[packet.challenge].authenticated[packet.wanIP]
-                        and (not peers[packet.wanIP]
-                            or challenges[packet.challenge].generation > peers[packet.wanIP].challengeGeneration)
-                        and type(packet.proof) == "string"
-                        and router.verifyLinkProof(packet.challenge, packet.wanIP, packet.proof) then
-                    challenges[packet.challenge].authenticated[packet.wanIP] = senderID
-                    peers[packet.wanIP] = {
-                        computerID = senderID,
-                        seen = os.epoch("utc"),
-                        challenge = packet.challenge,
-                        challengeGeneration = challenges[packet.challenge].generation,
-                        domainSequence = -1,
-                    }
-                    sendDomainAnnouncement(packet.wanIP)
-                end
-            elseif packet.kind == "domains" then
-                handleDomainAnnouncement(senderID, packet)
-            end
-        end
-
         local function announce()
-            if wanEnabled then
-                local challenge = router.newLinkChallenge()
-                challengeGeneration = challengeGeneration + 1
-                challenges[challenge] = {
-                    expires = os.epoch("utc") + peerTimeout * 1000,
-                    authenticated = {},
-                    generation = challengeGeneration,
-                }
-                rednet.broadcast({
-                    kind = "hello",
-                    wanIP = wanIP,
-                    ssid = ssid,
-                    challenge = challenge,
-                }, PROTOCOL)
-            end
             local _, x, y, z = wanIP:match("^(.+)%.(-?%d+)%.(-?%d+)%.(-?%d+)$")
             local wifiInfo = router.getWifi()
             rednet.broadcast({
@@ -1116,22 +940,6 @@ function M.run(routerName)
                 secured = wifiInfo.security == "password",
                 connectedClients = wifiInfo.connectedClients,
             }, CLIENT_PROTOCOL)
-            for peerWan in pairs(peers) do
-                sendDomainAnnouncement(peerWan)
-            end
-        end
-
-        local function refreshWanConfig(currentLinkInfo)
-            if currentLinkInfo.wanRevision ~= wanRevision then
-                for peerWan in pairs(peers) do
-                    router.clearPeerDomains(peerWan)
-                end
-                wanRevision = currentLinkInfo.wanRevision
-                wanEnabled = currentLinkInfo.wanEnabled
-                peers = {}
-                challenges = {}
-                remoteChallenges = {}
-            end
         end
 
         announce()
@@ -1142,76 +950,18 @@ function M.run(routerName)
 
             if event == "timer" and first == timer then
                 local currentLinkInfo = router.getLinkInfo()
-                refreshWanConfig(currentLinkInfo)
                 networkConfig = router.getNetworkConfig()
                 announceInterval = networkConfig.announceIntervalSeconds
-                peerTimeout = networkConfig.peerTimeoutSeconds
                 if currentLinkInfo.wanIP ~= wanIP or currentLinkInfo.ssid ~= ssid
                         or currentLinkInfo.revision ~= wifiRevision then
-                    for peerWan in pairs(peers) do
-                        router.clearPeerDomains(peerWan)
-                    end
                     wanIP = currentLinkInfo.wanIP
                     ssid = currentLinkInfo.ssid
                     wifiRevision = currentLinkInfo.revision
-                    peers = {}
-                    challenges = {}
-                    remoteChallenges = {}
                     pendingAir = {}
                     airClients = {}
                 end
-                local now = os.epoch("utc")
-                for challenge, state in pairs(challenges) do
-                    if now > state.expires then
-                        challenges[challenge] = nil
-                    end
-                    for peerWan, remote in pairs(remoteChallenges) do
-                        if now - remote.seen > peerTimeout * 1000 then
-                            remoteChallenges[peerWan] = nil
-                        end
-                    end
-                end
-                for peerWan, peer in pairs(peers) do
-                    if now - peer.seen > peerTimeout * 1000 then
-                        router.clearPeerDomains(peerWan)
-                        peers[peerWan] = nil
-                        remoteChallenges[peerWan] = nil
-                    end
-                end
-                drainWanPackets()
                 announce()
                 timer = os.startTimer(announceInterval)
-            elseif event == "wifi_domains_changed" then
-                for peerWan in pairs(peers) do
-                    sendDomainAnnouncement(peerWan)
-                end
-            elseif event == "rednet_message" and protocol == PROTOCOL and type(second) == "table" then
-                refreshWanConfig(router.getLinkInfo())
-                local senderID = first
-                local packet = second
-                if packet.kind == "data" and packet.destinationWan == wanIP
-                        and type(packet.ciphertext) == "string" then
-                    local sourceWan
-                    local now = os.epoch("utc")
-                    for peerWan, peer in pairs(peers) do
-                        if peer.computerID == senderID and now - peer.seen <= peerTimeout * 1000 then
-                            sourceWan = peerWan
-                            break
-                        end
-                    end
-                    if sourceWan then
-                        local ok, accepted = pcall(router.receiveWAN, sourceWan, wanIP, packet.ciphertext)
-                        if not ok then
-                            printError("wifi: rejected encrypted WAN packet: " .. tostring(accepted))
-                        elseif not accepted then
-                            printError("wifi: WAN packet rejected by destination router: " .. wanIP)
-                        end
-                    else
-                        printError("wifi: rejected WAN packet: source is not an authenticated peer")
-                    end
-                else
-                    handleWanPacket(senderID, packet)
-                end
             elseif event == "rednet_message" and protocol == CLIENT_PROTOCOL and type(second) == "table" then
                 local senderID = first
                 local packet = second
@@ -1297,7 +1047,6 @@ function M.run(routerName)
                     elseif not sent then
                         printError("wifi: message could not be delivered to " .. packet.recipient)
                     end
-                    drainWanPackets()
                     if type(packet.requestId) == "string" and #packet.requestId <= 128 then
                         sendAirResponse(senderID, {
                             kind = "send_result",
@@ -1311,7 +1060,6 @@ function M.run(routerName)
                         and (packet.destinationLan == nil or type(packet.destinationLan) == "string") then
                     local ok, sent = pcall(router.sendAirWAN, senderID, packet.destinationWan,
                         packet.destinationLan, packet.message)
-                    drainWanPackets()
                     if type(packet.requestId) == "string" and #packet.requestId <= 128 then
                         sendAirResponse(senderID, {
                             kind = "send_result",
@@ -1343,8 +1091,6 @@ function M.run(routerName)
                         data = data,
                     })
                 end
-            elseif event == "wifi_wan_send" then
-                drainWanPackets()
             end
         end
     end

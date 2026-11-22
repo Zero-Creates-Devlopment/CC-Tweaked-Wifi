@@ -2,21 +2,20 @@
 
 Add configurable Wi-Fi-style networking to your ComputerCraft world with a craftable router block for **NeoForge** and **CC:Tweaked**.
 
-Routers create separate LANs with DHCP-assigned IP addresses, domain names mapped to individual computers, and message passing. Router bridges share domain records with directly linked WAN peers, allowing a sender to address a computer by name instead of supplying its router WAN address and LAN IP.
+Routers create separate LANs with assigned IP addresses, domain names mapped to individual computers, and message passing. Loaded routers share domain records automatically across the server, including across dimensions.
 
-The `wifi` Lua module is available globally. Client computers can discover and join routers over the air with a wireless modem, without GPS setup or a wired/peripheral connection. A bridge computer running `wifi.run()` must remain attached to each router.
+The `wifi` Lua module is available globally. Client computers can discover and join routers over the air with a wireless modem, without GPS setup or a wired/peripheral connection. Wireless clients need a bridge computer running `wifi.run()` on their router.
 
 ## Features
 
 - **SSID and password settings** for each router. Changing credentials disconnects current LAN clients.
 - **Configurable nearby-router discovery:** attached routers scan loaded chunks within 60 blocks by default. Wireless reach depends on the CC:Tweaked modem network.
 - **Nearby router discovery** without GPS setup.
-- **Persistent LAN and WAN domains** protected by ownership tokens, including offline reservations advertised to linked peers.
+- **Persistent LAN and WAN domains** protected by ownership tokens, including offline reservations shared by loaded routers.
 - **WAN routing** between routers using `dimension.x.y.z` addresses.
-- **Wired and wireless router links** through CC:Tweaked modems and rednet.
+- **Automatic server-wide routing** without router links, modem reach, or a WAN secret.
 - **Lua module API:** connect, register domains, inspect known records, and send or receive messages with `require("wifi")`.
-- **Protected traffic:** password-protected LAN packets and WAN data use authenticated encryption; open LAN packets are authenticated but remain readable.
-- **Protected domain announcements:** trusted WAN routers use a shared secret and reject forged or replayed records.
+- **Protected wireless traffic:** password-protected LAN packets use authenticated encryption; open LAN packets are authenticated but remain readable.
 
 ## Requirements
 
@@ -33,13 +32,7 @@ local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 ```
 
-For WAN links, configure the same strong, randomly generated secret on each trusted router from an attached computer. WAN linking is disabled until configured:
-```lua
-local wifi = require("wifi")
-assert(wifi.configureWan("replace-with-a-long-random-secret"))
-```
-
-For wireless clients and WAN links, keep a bridge computer attached to each router. Each bridge needs a CC:Tweaked modem:
+For wireless clients, keep a bridge computer with a wireless modem attached to the router:
 ```lua
 local wifi = require("wifi")
 wifi.run()
@@ -73,12 +66,12 @@ else
 end
 ```
 
-Use `wifi.listNearbyRouters()` to discover routers, `wifi.getStatus()` to inspect your connection, and `wifi.getDomainRecords()` to list known local and directly linked peer domains. Domains must be unique across linked routers.
+Use `wifi.listNearbyRouters()` to discover routers, `wifi.getStatus()` to inspect your connection, and `wifi.getDomainRecords()` to list domains on loaded routers.
 
-Use wireless modems for over-air links or wired modems for cable connections. Routers need matching WAN secrets but do not need matching LAN SSIDs or passwords. WAN sends require a direct peer route, and accepting a send does not guarantee delivery.
+Loaded routers communicate across the server without configuration, including across dimensions. Unloaded chunks are not force-loaded. A successful send places a message in the recipient's inbox but does not guarantee the application reads it.
 
 ## Configuration and Security Notes
 
-Wireless sessions and WAN data use random server-held keys. Open LAN traffic is authenticated but not encrypted, except ownership tokens, which are always encrypted in transit. WAN domain announcements are authenticated, encrypted, and replay-checked. Offline reservations are advertised to linked peers; unlinked routers cannot coordinate and conflicting names become ambiguous. Domain-addressed WAN packets are rejected if the destination no longer owns the name, but WAN data packets can still be replayed while the server is running. Reservations persist while the router block remains in the world. Trust only attached computers and routers with the shared WAN secret; tokens are stored on computers, and the WAN secret and LAN password are saved in world data. Discovery reveals router information, and rednet reveals traffic timing and approximate packet size. Use strong passwords because captured login proofs may allow offline guessing.
+Wireless sessions use random server-held keys. Open LAN traffic is authenticated but not encrypted, except ownership tokens, which are always encrypted in transit. Router-to-router messages and domain records remain inside the server and do not use WAN packet encryption. Offline reservations on loaded routers prevent conflicting claims; unloaded routers cannot coordinate, and conflicts become ambiguous when they load. Reservations persist while the router block remains in the world. Protect attached computers, world data, and token backups. Discovery reveals router information, and rednet reveals traffic timing and approximate packet size. Use strong passwords because captured login proofs may allow offline guessing.
 
 **This mod provides an in-game network, not a connection to real Wi-Fi or the internet.**
