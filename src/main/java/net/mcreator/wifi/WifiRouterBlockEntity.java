@@ -1,10 +1,10 @@
 package net.mcreator.wifi;
 
-import net.minecraft.core.HolderLookup;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 
 public class WifiRouterBlockEntity extends BlockEntity {
 	private final WifiRouterPeripheral peripheral = new WifiRouterPeripheral(this);
@@ -18,14 +18,14 @@ public class WifiRouterBlockEntity extends BlockEntity {
 	}
 
 	@Override
-	protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-		super.saveAdditional(tag, registries);
-		peripheral.save(tag);
+	protected void saveAdditional(ValueOutput output) {
+		super.saveAdditional(output);
+		peripheral.save(output);
 	}
 
 	@Override
-	protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-		super.loadAdditional(tag, registries);
-		peripheral.load(tag);
+	protected void loadAdditional(ValueInput input) {
+		super.loadAdditional(input);
+		peripheral.load(input);
 	}
 }

@@ -4,7 +4,7 @@ license="Not specified"
 
 [[mods]]
 modId="wifi"
-version="1.0.0"
+version="2.0.1"
 displayName="Wi-Fi Router"
 authors="zeroS"
 description='Adds a programmable local network router peripheral for CC:Tweaked.'
@@ -12,14 +12,14 @@ description='Adds a programmable local network router peripheral for CC:Tweaked.
 [[dependencies.wifi]]
     modId="neoforge"
     type="required"
-    versionRange="[21.1.265,21.2)"
+    versionRange="[26.3.0.115,26.4)"
     ordering="AFTER"
     side="BOTH"
 
 [[dependencies.wifi]]
     modId="minecraft"
     type="required"
-    versionRange="[1.21.1]"
+    versionRange="[26.3]"
     ordering="AFTER"
     side="BOTH"
 

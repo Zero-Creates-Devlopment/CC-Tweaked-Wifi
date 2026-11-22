@@ -62,10 +62,10 @@ public class WifiMod {
 	public static final Supplier<WifiRouterBlock> WIFI_ROUTER = BLOCKS.register("wifi_router", WifiRouterBlock::new);
 	public static final Supplier<BlockItem> WIFI_ROUTER_ITEM = ITEMS.registerSimpleBlockItem("wifi_router", WIFI_ROUTER);
 	public static final Supplier<BlockEntityType<WifiRouterBlockEntity>> WIFI_ROUTER_ENTITY = BLOCK_ENTITY_TYPES.register(
-			"wifi_router", () -> BlockEntityType.Builder.of(WifiRouterBlockEntity::new, WIFI_ROUTER.get()).build(null));
+			"wifi_router", () -> new BlockEntityType<>(WifiRouterBlockEntity::new, WIFI_ROUTER.get()));
 
 	public WifiMod(IEventBus modEventBus, ModContainer modContainer) {
-		modContainer.registerConfig(ModConfig.Type.SERVER, SERVER_CONFIG);
+		modContainer.registerConfig(ModConfig.Type.SYNCED, SERVER_CONFIG);
 		BLOCKS.register(modEventBus);
 		ITEMS.register(modEventBus);
 		BLOCK_ENTITY_TYPES.register(modEventBus);
