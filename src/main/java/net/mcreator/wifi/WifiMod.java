@@ -1,6 +1,7 @@
 package net.mcreator.wifi;
 
 import dan200.computercraft.api.peripheral.PeripheralCapability;
+import dan200.computercraft.api.ComputerCraftAPI;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
@@ -14,7 +15,6 @@ import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
-import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.minecraft.core.registries.Registries;
@@ -45,10 +45,10 @@ public class WifiMod {
 				.comment("Maximum queued messages per LAN client.")
 				.defineInRange("maxInboxSize", 64, 1, 4096);
 		ANNOUNCE_INTERVAL_SECONDS = builder
-				.comment("Seconds between router bridge discovery announcements.")
+				.comment("Seconds between wireless router bridge discovery beacons.")
 				.defineInRange("announceIntervalSeconds", 3, 1, 60);
 		PEER_TIMEOUT_SECONDS = builder
-				.comment("Seconds before an inactive WAN bridge peer expires; keep this above the announce interval.")
+				.comment("Legacy setting retained for compatibility; server-wide routing does not use it.")
 				.defineInRange("peerTimeoutSeconds", 12, 3, 300);
 		builder.pop();
 		SERVER_CONFIG = builder.build();
@@ -65,22 +65,19 @@ public class WifiMod {
 			"wifi_router", () -> new BlockEntityType<>(WifiRouterBlockEntity::new, WIFI_ROUTER.get()));
 
 	public WifiMod(IEventBus modEventBus, ModContainer modContainer) {
+		ComputerCraftAPI.registerAPIFactory(WifiAirSessions.Api::new);
 		modContainer.registerConfig(ModConfig.Type.SYNCED, SERVER_CONFIG);
 		BLOCKS.register(modEventBus);
 		ITEMS.register(modEventBus);
 		BLOCK_ENTITY_TYPES.register(modEventBus);
 		modEventBus.addListener(this::registerCapabilities);
 		modEventBus.addListener(this::addToCreativeTab);
-		NeoForge.EVENT_BUS.addListener(this::onServerStarted);
 		NeoForge.EVENT_BUS.addListener(this::onServerStopping);
 	}
 
-	private void onServerStarted(ServerStartedEvent event) {
-		WifiWanCrypto.startServer(event.getServer());
-	}
-
 	private void onServerStopping(ServerStoppingEvent event) {
-		WifiWanCrypto.stopServer(event.getServer());
+		WifiAirSessions.stopServer(event.getServer());
+		WifiRouterNetwork.stopServer(event.getServer());
 	}
 
 	private void registerCapabilities(RegisterCapabilitiesEvent event) {

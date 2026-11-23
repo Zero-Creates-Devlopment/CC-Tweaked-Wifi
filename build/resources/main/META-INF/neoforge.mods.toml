@@ -1,0 +1,31 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="Not specified"
+
+[[mods]]
+modId="wifi"
+version="2.0.1"
+displayName="Wi-Fi Router"
+authors="zeroS"
+description='Adds a programmable local network router peripheral for CC:Tweaked.'
+
+[[dependencies.wifi]]
+    modId="neoforge"
+    type="required"
+    versionRange="[26.3.0.115,26.4)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.wifi]]
+    modId="minecraft"
+    type="required"
+    versionRange="[26.3]"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.wifi]]
+    modId="computercraft"
+    type="required"
+    versionRange="[1.121.0,)"
+    ordering="AFTER"
+    side="BOTH"

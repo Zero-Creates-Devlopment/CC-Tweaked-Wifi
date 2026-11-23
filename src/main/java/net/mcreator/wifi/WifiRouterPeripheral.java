@@ -23,7 +23,6 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.HashMap;
@@ -33,23 +32,23 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-public final class WifiRouterPeripheral implements IPeripheral {
+public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwork.Router {
 	private static final Pattern IPV4 = Pattern.compile(
 			"192\\.168\\.1\\.(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])");
-	private static final Pattern WAN = Pattern.compile(".+\\.-?\\d+\\.-?\\d+\\.-?\\d+");
-	private static final Pattern DOMAIN = Pattern.compile(
-			"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?");
-	private static final int MAX_DOMAIN_RECORDS_PER_PEER = 254;
+	private static final String IPV4_OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
+	private static final Pattern WAN = Pattern.compile(IPV4_OCTET + "(?:\\." + IPV4_OCTET + "){3}");
+	private static final Pattern DOMAIN = WifiDomainReservations.DOMAIN;
 	private static final SecureRandom RANDOM = new SecureRandom();
 
 	private final WifiRouterBlockEntity target;
 	private final Map<Integer, IComputerAccess> attached = new HashMap<>();
 	private final Map<Integer, Client> clients = new LinkedHashMap<>();
 	private final Map<Integer, PendingAirJoin> pendingAirJoins = new HashMap<>();
-	private final Map<String, Map<String, String>> peerDomains = new HashMap<>();
-	private final ArrayDeque<Map<String, Object>> pendingWanPackets = new ArrayDeque<>();
+	private final WifiDomainReservations reservations = new WifiDomainReservations();
 	private String ssid = "MC-WiFi";
 	private String password = "";
+	@Nullable
+	private String wanIP;
 	private long wifiRevision;
 	@Nullable
 	private IComputerAccess bridge;
@@ -77,13 +76,15 @@ public final class WifiRouterPeripheral implements IPeripheral {
 	@Override
 	public synchronized void detach(IComputerAccess computer) {
 		attached.remove(computer.getID());
-		clients.remove(computer.getID());
+		Client removed = clients.remove(computer.getID());
 		if (bridge != null && bridge.getID() == computer.getID()) {
 			bridge = null;
+			clearAirSessions();
 			clients.entrySet().removeIf(entry -> entry.getValue().computer == null);
 			pendingAirJoins.clear();
-			peerDomains.clear();
-			pendingWanPackets.clear();
+		}
+		if (removed != null && removed.domain != null) {
+			notifyDomainsChanged();
 		}
 	}
 
@@ -101,13 +102,24 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		result.put("connectedClients", clients.size());
 		result.put("range", WifiMod.WIRELESS_RANGE.get());
 		result.put("maxClients", WifiMod.MAX_CLIENTS.get());
+		result.put("x", target.getBlockPos().getX());
+		result.put("y", target.getBlockPos().getY());
+		result.put("z", target.getBlockPos().getZ());
 		return result;
 	}
 
 	@LuaFunction(mainThread = true)
-	public final String getWanIP() {
-		return target.getLevel().dimension().identifier() + "." + target.getBlockPos().getX() + "."
-				+ target.getBlockPos().getY() + "." + target.getBlockPos().getZ();
+	public final synchronized String getWanIP() {
+		if (wanIP == null) {
+			wanIP = randomWanIP();
+			target.setChanged();
+		}
+		return wanIP;
+	}
+
+	private static String randomWanIP() {
+		return RANDOM.nextInt(1, 255) + "." + RANDOM.nextInt(1, 255) + "."
+				+ RANDOM.nextInt(1, 255) + "." + RANDOM.nextInt(1, 255);
 	}
 
 	@LuaFunction(mainThread = true)
@@ -122,7 +134,9 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		if (ssid.equals(networkName) && password.equals(networkPassword)) {
 			return true;
 		}
+
 		String previousSsid = ssid;
+		clearAirSessions();
 		ssid = networkName;
 		password = networkPassword;
 		wifiRevision++;
@@ -133,11 +147,10 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		}
 		clients.clear();
 		pendingAirJoins.clear();
-		peerDomains.clear();
+		notifyDomainsChanged();
 		target.setChanged();
 		return true;
 	}
-	
 
 	@LuaFunction(mainThread = true)
 	public final synchronized boolean connect(IComputerAccess computer, String networkName, String networkPassword)
@@ -164,6 +177,9 @@ public final class WifiRouterPeripheral implements IPeripheral {
 			return false;
 		}
 		computer.queueEvent("wifi_disconnected", ssid);
+		if (client.domain != null) {
+			notifyDomainsChanged();
+		}
 		return true;
 	}
 
@@ -180,25 +196,27 @@ public final class WifiRouterPeripheral implements IPeripheral {
 			return false;
 		}
 		client.ip = address;
+		if (client.domain != null) {
+			notifyDomainsChanged();
+		}
 		return true;
 	}
 
 	@LuaFunction(mainThread = true)
-	public final synchronized boolean registerDomain(IComputerAccess computer, String domain) {
+	public final synchronized boolean registerDomain(IComputerAccess computer, String domain, String token) {
 		Client client = clients.get(computer.getID());
-		String normalized = domain.toLowerCase(Locale.ROOT);
-		if (client == null || !DOMAIN.matcher(normalized).matches() || hasDomainConflict(normalized, client)) {
-			return false;
-		}
-		client.domain = normalized;
-		notifyDomainsChanged();
-		return true;
+		return registerClientDomain(client, domain, token);
+	}
+
+	@LuaFunction(mainThread = true)
+	public final synchronized boolean releaseDomain(IComputerAccess computer, String domain, String token) {
+		return releaseClientDomain(clients.get(computer.getID()), domain, token);
 	}
 
 	@LuaFunction(mainThread = true)
 	public final synchronized String resolve(String domain) {
-		DomainRoute route = resolveDomainRoute(domain);
-		return route == null ? "" : route.lanIP;
+		WifiRouterNetwork.Route route = resolveDomainRoute(domain);
+		return route == null ? "" : route.lanIP();
 	}
 
 	@LuaFunction(mainThread = true)
@@ -210,12 +228,15 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		if (sender == null) {
 			return false;
 		}
+		if (!IPV4.matcher(recipient).matches() && resolveDomainRoute(recipient) == null) {
+			return false;
+		}
 		Client destination = clients.values().stream()
 				.filter(client -> recipient.equals(client.ip) || recipient.equalsIgnoreCase(client.domain))
 				.findFirst()
 				.orElse(null);
 		if (destination == null) {
-			return queueWanPacket(computer.getID(), sender, recipient, null, message);
+			return sendWanPacket(computer.getID(), sender, recipient, null, message);
 		}
 		if (destination.computerID == computer.getID() || (destination.computer == null && bridge == null)) {
 			return false;
@@ -250,10 +271,9 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		}
 		if (bridge != null && bridge.getID() == computer.getID()) {
 			bridge = null;
+			clearAirSessions();
 			clients.entrySet().removeIf(entry -> entry.getValue().computer == null);
 			pendingAirJoins.clear();
-			peerDomains.clear();
-			pendingWanPackets.clear();
 			return true;
 		}
 		return false;
@@ -273,13 +293,11 @@ public final class WifiRouterPeripheral implements IPeripheral {
 	public final synchronized ArrayList<Map<String, Object>> getDomainRecords(IComputerAccess computer) {
 		requireBridge(computer);
 		ArrayList<Map<String, Object>> result = new ArrayList<>();
-		for (Client client : clients.values()) {
-			if (client.domain != null && client.ip != null) {
-				Map<String, Object> record = new LinkedHashMap<>();
-				record.put("domain", client.domain);
-				record.put("lanIP", client.ip);
-				result.add(record);
-			}
+		for (String domain : reservations.domains()) {
+			Map<String, Object> record = new LinkedHashMap<>();
+			record.put("domain", domain);
+			record.put("lanIP", activeDomainAddress(domain));
+			result.add(record);
 		}
 		return result;
 	}
@@ -287,51 +305,16 @@ public final class WifiRouterPeripheral implements IPeripheral {
 	@LuaFunction(mainThread = true)
 	public final synchronized ArrayList<Map<String, Object>> getKnownDomainRecords(IComputerAccess computer) {
 		requireAttached(computer);
-		ArrayList<Map<String, Object>> result = new ArrayList<>();
-		for (Client client : clients.values()) {
-			if (client.domain != null && client.ip != null) {
-				Map<String, Object> record = new LinkedHashMap<>();
-				record.put("domain", client.domain);
-				record.put("lanIP", client.ip);
-				record.put("wanIP", getWanIP());
-				result.add(record);
-			}
-		}
-		for (Map.Entry<String, Map<String, String>> peer : peerDomains.entrySet()) {
-			for (Map.Entry<String, String> domain : peer.getValue().entrySet()) {
-				Map<String, Object> record = new LinkedHashMap<>();
-				record.put("domain", domain.getKey());
-				record.put("lanIP", domain.getValue());
-				record.put("wanIP", peer.getKey());
-				result.add(record);
-			}
-		}
-		return result;
+		return network().records();
 	}
 
-	@LuaFunction(mainThread = true)
-	public final synchronized void clearPeerDomains(IComputerAccess computer, String peerWan) {
-		requireBridge(computer);
-		validateWanAddress(peerWan);
-		peerDomains.remove(peerWan);
-	}
-
-	@LuaFunction(mainThread = true)
-	public final synchronized boolean registerPeerDomain(IComputerAccess computer, String peerWan,
-			String domain, String lanIP) {
-		requireBridge(computer);
-		validateWanAddress(peerWan);
-		String normalized = domain.toLowerCase(Locale.ROOT);
-		if (peerWan.equals(getWanIP()) || !DOMAIN.matcher(normalized).matches()
-				|| !IPV4.matcher(lanIP).matches()) {
-			return false;
+	@Override
+	public synchronized Map<String, String> localDomains() {
+		Map<String, String> domains = new LinkedHashMap<>();
+		for (String domain : reservations.domains()) {
+			domains.put(domain, activeDomainAddress(domain));
 		}
-		Map<String, String> domains = peerDomains.computeIfAbsent(peerWan, ignored -> new HashMap<>());
-		if (domains.size() >= MAX_DOMAIN_RECORDS_PER_PEER && !domains.containsKey(normalized)) {
-			return false;
-		}
-		domains.put(normalized, lanIP);
-		return true;
+		return domains;
 	}
 
 	@LuaFunction(mainThread = true)
@@ -401,7 +384,48 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		result.put("wanIP", getWanIP());
 		result.put("ssid", ssid);
 		result.put("success", true);
+		WifiAirSessions.create(getServer(), getWanIP(), clientComputerId, !password.isEmpty());
 		return result;
+	}
+
+	@LuaFunction(mainThread = true)
+	public final synchronized String sealAir(IComputerAccess computer, int clientComputerId, String plaintext)
+			throws LuaException {
+		requireBridge(computer);
+		return WifiAirSessions.seal(getServer(), getWanIP(), clientComputerId, false, plaintext);
+	}
+
+	@LuaFunction(mainThread = true)
+	public final synchronized String openAir(IComputerAccess computer, int clientComputerId, String packet)
+			throws LuaException {
+		requireBridge(computer);
+		return WifiAirSessions.open(getServer(), getWanIP(), clientComputerId, true, packet);
+	}
+
+	@LuaFunction(mainThread = true)
+	public final synchronized Map<String, Object> processAirDomainRequest(IComputerAccess computer, int clientComputerId,
+			String packet)
+			throws LuaException {
+		requireBridge(computer);
+		String plaintext = WifiAirSessions.open(getServer(), getWanIP(), clientComputerId, true, packet, true);
+		String[] fields = plaintext.split("\u0000", -1);
+		if (fields.length != 4 || fields[0].length() > 32 || fields[1].length() > 253
+				|| fields[2].length() != 64 || fields[3].isEmpty() || fields[3].length() > 128) {
+			throw new LuaException("Invalid domain request");
+		}
+		Client client = clients.get(clientComputerId);
+		boolean success = client != null && client.computer == null && switch (fields[0]) {
+			case "register_domain" -> registerClientDomain(client, fields[1], fields[2]);
+			case "release_domain" -> releaseClientDomain(client, fields[1], fields[2]);
+			default -> false;
+		};
+		Map<String, Object> response = new LinkedHashMap<>();
+		response.put("requestId", fields[3]);
+		response.put("success", success);
+		if (!success) {
+			response.put("reason", "Domain request was rejected");
+		}
+		return response;
 	}
 
 	@LuaFunction(mainThread = true)
@@ -415,12 +439,15 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		if (sender == null || sender.computer != null) {
 			return false;
 		}
+		if (!IPV4.matcher(recipient).matches() && resolveDomainRoute(recipient) == null) {
+			return false;
+		}
 		Client destination = clients.values().stream()
 				.filter(client -> recipient.equals(client.ip) || recipient.equalsIgnoreCase(client.domain))
 				.findFirst()
 				.orElse(null);
 		if (destination == null) {
-			return queueWanPacket(clientComputerId, sender, recipient, null, message);
+			return sendWanPacket(clientComputerId, sender, recipient, null, message);
 		}
 		if (destination.computerID == clientComputerId || (destination.computer == null && bridge == null)) {
 			return false;
@@ -459,20 +486,9 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		}
 		clients.remove(clientComputerId);
 		pendingAirJoins.remove(clientComputerId);
-		return true;
-	}
-
-	@LuaFunction(mainThread = true)
-	public final synchronized boolean registerAirDomain(IComputerAccess computer, int clientComputerId,
-			String domain) {
-		requireBridge(computer);
-		Client client = clients.get(clientComputerId);
-		String normalized = domain.toLowerCase(Locale.ROOT);
-		if (client == null || client.computer != null || !DOMAIN.matcher(normalized).matches()
-				|| hasDomainConflict(normalized, client)) {
-			return false;
+		if (target.getLevel() != null && target.getLevel().getServer() != null) {
+			WifiAirSessions.remove(target.getLevel().getServer(), getWanIP(), clientComputerId);
 		}
-		client.domain = normalized;
 		notifyDomainsChanged();
 		return true;
 	}
@@ -541,36 +557,13 @@ public final class WifiRouterPeripheral implements IPeripheral {
 	}
 
 	@LuaFunction(mainThread = true)
-	public final synchronized String makeLinkProof(IComputerAccess computer, String challenge, String claimedWan) {
-		requireBridge(computer);
-		validateChallenge(challenge);
-		validateWanAddress(claimedWan);
-		return createLinkProof(challenge, claimedWan);
-	}
-
-	@LuaFunction(mainThread = true)
-	public final synchronized boolean verifyLinkProof(IComputerAccess computer, String challenge, String claimedWan,
-			String proof) {
-		requireBridge(computer);
-		validateChallenge(challenge);
-		validateWanAddress(claimedWan);
-		byte[] supplied;
-		try {
-			supplied = HexFormat.of().parseHex(proof);
-		} catch (IllegalArgumentException exception) {
-			return false;
-		}
-		return MessageDigest.isEqual(createLinkProofBytes(challenge, claimedWan), supplied);
-	}
-
-	@LuaFunction(mainThread = true)
 	public final synchronized boolean sendWAN(IComputerAccess computer, IArguments arguments) throws LuaException {
 		requireArgumentCount(arguments, 3, "destination, LAN IP, message");
 		String destinationWan = arguments.getString(0);
 		@Nullable String destinationLan = getOptionalString(arguments, 1, "LAN IP");
 		Object message = getRednetMessage(arguments, 2);
 		Client sender = clients.get(computer.getID());
-		return queueWanPacket(computer.getID(), sender, destinationWan, destinationLan, message);
+		return sendWanPacket(computer.getID(), sender, destinationWan, destinationLan, message);
 	}
 
 	@LuaFunction(mainThread = true)
@@ -585,21 +578,23 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		if (sender == null || sender.computer != null) {
 			return false;
 		}
-		return queueWanPacket(clientComputerId, sender, destinationWan, destinationLan, message);
+		return sendWanPacket(clientComputerId, sender, destinationWan, destinationLan, message);
 	}
 
-	private boolean queueWanPacket(int sourceComputerId, @Nullable Client sender, String destinationWan,
+	private boolean sendWanPacket(int sourceComputerId, @Nullable Client sender, String destinationWan,
 			@Nullable String destinationLan, Object message) throws LuaException {
-		if (sender == null || bridge == null) {
+		if (sender == null) {
 			return false;
 		}
+		String destinationDomain = "";
 		if (destinationLan == null) {
-			DomainRoute route = resolveDomainRoute(destinationWan);
+			WifiRouterNetwork.Route route = resolveDomainRoute(destinationWan);
 			if (route == null) {
 				return false;
 			}
-			destinationWan = route.wanIP;
-			destinationLan = route.lanIP;
+			destinationDomain = destinationWan.toLowerCase(Locale.ROOT);
+			destinationWan = route.wanIP();
+			destinationLan = route.lanIP();
 		} else if (DOMAIN.matcher(destinationWan.toLowerCase(Locale.ROOT)).matches()
 				|| !WAN.matcher(destinationWan).matches() || !IPV4.matcher(destinationLan).matches()) {
 			return false;
@@ -629,62 +624,35 @@ public final class WifiRouterPeripheral implements IPeripheral {
 			return true;
 		}
 
-		if (pendingWanPackets.size() >= WifiMod.MAX_INBOX_SIZE.get()) {
-			return false;
-		}
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("destinationWan", destinationWan);
 		payload.put("destinationLan", destinationLan);
+		payload.put("destinationDomain", destinationDomain);
 		payload.put("sourceWan", getWanIP());
 		payload.put("sourceLan", sender.ip);
 		payload.put("sourceDomain", sender.domain == null ? "" : sender.domain);
 		payload.put("message", message);
 		try {
 			byte[] serialized = WifiWanPayloadCodec.encode(payload);
-			byte[] encrypted = WifiWanCrypto.encrypt(getServer(), serialized);
-			Map<String, Object> envelope = new LinkedHashMap<>();
-			envelope.put("destinationWan", destinationWan);
-			envelope.put("sourceComputerId", sourceComputerId);
-			envelope.put("ciphertext", Base64.getUrlEncoder().withoutPadding().encodeToString(encrypted));
-			pendingWanPackets.addLast(envelope);
-			bridge.queueEvent("wifi_wan_send");
-		} catch (GeneralSecurityException | java.io.IOException | IllegalStateException exception) {
-			throw new LuaException("Unable to encrypt WAN packet: " + exception.getMessage());
+			return network().deliver(destinationWan, WifiWanPayloadCodec.decode(serialized));
+		} catch (java.io.IOException exception) {
+			throw new LuaException("Unable to encode WAN packet: " + exception.getMessage());
 		}
-		return true;
 	}
 
-	@LuaFunction(mainThread = true)
-	@Nullable
-	public final synchronized Map<String, Object> nextWanPacket(IComputerAccess computer) {
-		requireBridge(computer);
-		return pendingWanPackets.pollFirst();
-	}
-
-	@LuaFunction(mainThread = true)
-	public final synchronized boolean receiveWAN(IComputerAccess computer, String sourceWan, String destinationWan,
-			String encryptedPacket) throws LuaException {
-		if (bridge == null || bridge.getID() != computer.getID()
-				|| !WAN.matcher(sourceWan).matches()
-				|| !getWanIP().equals(destinationWan)) {
-			return false;
-		}
-		Map<String, Object> payload;
-		try {
-			byte[] encrypted = Base64.getUrlDecoder().decode(encryptedPacket);
-			payload = WifiWanPayloadCodec.decode(WifiWanCrypto.decrypt(getServer(), encrypted));
-		} catch (IllegalArgumentException | GeneralSecurityException | java.io.IOException
-				| IllegalStateException exception) {
-			throw new LuaException("Rejected invalid encrypted WAN packet");
-		}
+	@Override
+	public synchronized boolean deliverWan(Map<String, Object> payload) {
 		String payloadSourceWan = payload.get("sourceWan") instanceof String value ? value : "";
 		String sourceLan = payload.get("sourceLan") instanceof String value ? value : "";
 		String payloadDestinationWan = payload.get("destinationWan") instanceof String value ? value : "";
 		String destinationLan = payload.get("destinationLan") instanceof String value ? value : "";
+		String destinationDomain = payload.get("destinationDomain") instanceof String value ? value : null;
 		String sourceDomain = payload.get("sourceDomain") instanceof String value ? value : "";
 		Object message = payload.get("message");
-		if (!sourceWan.equals(payloadSourceWan) || !destinationWan.equals(payloadDestinationWan)
+		if (!WAN.matcher(payloadSourceWan).matches() || !getWanIP().equals(payloadDestinationWan)
 				|| !IPV4.matcher(sourceLan).matches() || !IPV4.matcher(destinationLan).matches()
+				|| destinationDomain == null || (!destinationDomain.isEmpty()
+						&& !DOMAIN.matcher(destinationDomain).matches())
 				|| sourceDomain.length() > 253 || !isRednetValue(message, new IdentityHashMap<>())) {
 			return false;
 		}
@@ -692,13 +660,13 @@ public final class WifiRouterPeripheral implements IPeripheral {
 				.filter(client -> destinationLan.equals(client.ip))
 				.findFirst()
 				.orElse(null);
-		if (destination == null) {
+		if (destination == null || !matchesDestinationDomain(destinationDomain, destination.domain)) {
 			return false;
 		}
 
 		Map<String, Object> packet = new LinkedHashMap<>();
 		packet.put("from", sourceLan);
-		packet.put("fromWan", sourceWan);
+		packet.put("fromWan", payloadSourceWan);
 		packet.put("fromLan", sourceLan);
 		packet.put("domain", sourceDomain);
 		packet.put("message", message);
@@ -707,20 +675,13 @@ public final class WifiRouterPeripheral implements IPeripheral {
 			destination.inbox.removeFirst();
 		}
 		if (destination.computer != null) {
-			destination.computer.queueEvent("wifi_message", sourceWan, sourceLan, message);
+			destination.computer.queueEvent("wifi_message", payloadSourceWan, sourceLan, message);
 		}
 		return true;
 	}
 
-	@LuaFunction(mainThread = true)
-	public final synchronized void reportWANFailure(IComputerAccess computer, int sourceComputerId, String destinationWan) {
-		if (bridge == null || bridge.getID() != computer.getID()) {
-			return;
-		}
-		IComputerAccess sender = attached.get(sourceComputerId);
-		if (sender != null) {
-			sender.queueEvent("wifi_wan_unreachable", destinationWan);
-		}
+	static boolean matchesDestinationDomain(String destinationDomain, @Nullable String clientDomain) {
+		return destinationDomain.isEmpty() || destinationDomain.equals(clientDomain);
 	}
 
 	@LuaFunction(mainThread = true)
@@ -748,11 +709,18 @@ public final class WifiRouterPeripheral implements IPeripheral {
 	void save(ValueOutput output) {
 		output.putString("Ssid", ssid);
 		output.putString("Password", password);
+		if (wanIP != null) {
+			output.putString("WanIP", wanIP);
+		}
+		reservations.save(output);
 	}
 
 	synchronized void load(ValueInput input) {
 		ssid = input.getStringOr("Ssid", ssid);
 		password = input.getStringOr("Password", password);
+		String savedWanIP = input.getStringOr("WanIP", "");
+		wanIP = WAN.matcher(savedWanIP).matches() ? savedWanIP : null;
+		reservations.load(input);
 	}
 
 	private void requireAttached(IComputerAccess computer) {
@@ -761,40 +729,59 @@ public final class WifiRouterPeripheral implements IPeripheral {
 		}
 	}
 
-	private boolean hasDomainConflict(String domain, @Nullable Client excludedClient) {
-		if (clients.values().stream()
-				.anyMatch(other -> other != excludedClient && domain.equals(other.domain))) {
-			return true;
+	private void clearAirSessions() {
+		if (target.getLevel() != null && target.getLevel().getServer() != null) {
+			WifiAirSessions.removeRouter(target.getLevel().getServer(), getWanIP());
 		}
-		return peerDomains.values().stream().anyMatch(domains -> domains.containsKey(domain));
+	}
+
+	private boolean registerClientDomain(@Nullable Client client, String domain, String token) {
+		String normalized = domain.toLowerCase(Locale.ROOT);
+		if (client == null || !DOMAIN.matcher(normalized).matches()
+				|| (reservations.contains(normalized) && !reservations.owns(normalized, token))
+				|| (!reservations.contains(normalized) && network().hasOtherClaim(normalized, getWanIP()))) {
+			return false;
+		}
+		if (clients.values().stream()
+				.anyMatch(other -> other != client && normalized.equals(other.domain))) {
+			return false;
+		}
+		if (!reservations.reserve(normalized, token)) {
+			return false;
+		}
+		client.domain = normalized;
+		target.setChanged();
+		notifyDomainsChanged();
+		return true;
+	}
+
+	private boolean releaseClientDomain(@Nullable Client client, String domain, String token) {
+		String normalized = domain.toLowerCase(Locale.ROOT);
+		if (client == null || !reservations.release(normalized, token)) {
+			return false;
+		}
+		for (Client current : clients.values()) {
+			if (normalized.equals(current.domain)) {
+				current.domain = null;
+			}
+		}
+		target.setChanged();
+		notifyDomainsChanged();
+		return true;
+	}
+
+	private String activeDomainAddress(String domain) {
+		return clients.values().stream().filter(client -> domain.equals(client.domain) && client.ip != null)
+				.map(client -> client.ip).findFirst().orElse("");
 	}
 
 	@Nullable
-	private DomainRoute resolveDomainRoute(String domain) {
+	private WifiRouterNetwork.Route resolveDomainRoute(String domain) {
 		String normalized = domain.toLowerCase(Locale.ROOT);
 		if (!DOMAIN.matcher(normalized).matches()) {
 			return null;
 		}
-		DomainRoute route = null;
-		String localWan = getWanIP();
-		for (Client client : clients.values()) {
-			if (normalized.equals(client.domain)) {
-				if (route != null) {
-					return null;
-				}
-				route = new DomainRoute(localWan, client.ip);
-			}
-		}
-		for (Map.Entry<String, Map<String, String>> peer : peerDomains.entrySet()) {
-			String lanIP = peer.getValue().get(normalized);
-			if (lanIP != null) {
-				if (route != null) {
-					return null;
-				}
-				route = new DomainRoute(peer.getKey(), lanIP);
-			}
-		}
-		return route;
+		return network().resolve(normalized);
 	}
 
 	private void requireBridge(IComputerAccess computer) {
@@ -812,24 +799,17 @@ public final class WifiRouterPeripheral implements IPeripheral {
 	private MinecraftServer getServer() throws LuaException {
 		MinecraftServer server = target.getLevel().getServer();
 		if (server == null) {
-			throw new LuaException("WAN encryption is only available on a running server");
+			throw new LuaException("Wireless sessions require a running server");
 		}
 		return server;
 	}
 
-	private String createLinkProof(String challenge, String claimedWan) {
-		return HexFormat.of().formatHex(createLinkProofBytes(challenge, claimedWan));
-	}
-
-	private byte[] createLinkProofBytes(String challenge, String claimedWan) {
-		try {
-			Mac mac = Mac.getInstance("HmacSHA256");
-			byte[] key = "wifi-wan-link-v1".getBytes(StandardCharsets.UTF_8);
-			mac.init(new SecretKeySpec(key, "HmacSHA256"));
-			return mac.doFinal((challenge + "\u0000" + claimedWan).getBytes(StandardCharsets.UTF_8));
-		} catch (GeneralSecurityException exception) {
-			throw new IllegalStateException("Unable to create router link proof", exception);
+	private WifiRouterNetwork network() {
+		MinecraftServer server = target.getLevel().getServer();
+		if (server == null) {
+			throw new IllegalStateException("Router networking requires a running server");
 		}
+		return WifiRouterNetwork.forServer(server);
 	}
 
 	private byte[] createAirJoinProofBytes(String challenge, int clientComputerId, String clientNonce) {
@@ -842,18 +822,6 @@ public final class WifiRouterPeripheral implements IPeripheral {
 			return mac.doFinal(message.getBytes(StandardCharsets.UTF_8));
 		} catch (GeneralSecurityException exception) {
 			throw new IllegalStateException("Unable to verify wireless client", exception);
-		}
-	}
-
-	private static void validateChallenge(String challenge) {
-		if (challenge.isEmpty() || challenge.length() > 128) {
-			throw new IllegalArgumentException("Challenge must be 1-128 characters");
-		}
-	}
-
-	private static void validateWanAddress(String wanAddress) {
-		if (!WAN.matcher(wanAddress).matches()) {
-			throw new IllegalArgumentException("Invalid WAN address");
 		}
 	}
 
@@ -940,6 +908,4 @@ public final class WifiRouterPeripheral implements IPeripheral {
 	private record PendingAirJoin(String challenge, String clientNonce, long wifiRevision, long expiresAt) {
 	}
 
-	private record DomainRoute(String wanIP, String lanIP) {
-	}
 }
