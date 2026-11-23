@@ -9,15 +9,17 @@ textutils = {
     unserialize = function(value) return values[value] end,
 }
 
-local wan = "minecraft:overworld.1.2.3"
-local registrations, responses = {}, {}
+local wan = "22.145.56.55"
+local registrations, responses, beacons = {}, {}, {}
 local router = {
     setBridge = function() return true end,
     getLinkInfo = function()
         return { wanIP = wan, ssid = "test", revision = 0 }
     end,
     getNetworkConfig = function() return { announceIntervalSeconds = 3, peerTimeoutSeconds = 12 } end,
-    getWifi = function() return { range = 60, security = "password", connectedClients = 0 } end,
+    getWifi = function()
+        return { range = 60, security = "password", connectedClients = 0, x = 1, y = 2, z = 3 }
+    end,
     beginAirJoin = function()
         return { challenge = "join-challenge", ssid = "test", wanIP = wan }
     end,
@@ -40,7 +42,7 @@ local router = {
 
 local events = {
     { "timer", 1 },
-    { "rednet_message", 7, { kind = "domains", wanIP = "minecraft:the_nether.4.5.6" }, "wifi_router_v1" },
+    { "rednet_message", 7, { kind = "domains", wanIP = "22.145.56.56" }, "wifi_router_v1" },
     { "rednet_message", 11, { kind = "join", ssid = "test", clientNonce = "nonce" }, "wifi_client_v1" },
     { "rednet_message", 11, { kind = "proof", challenge = "join-challenge", clientNonce = "nonce", proof = "proof" }, "wifi_client_v1" },
     { "rednet_message", 11, { kind = "register_domain", domain = "hijacked.example" }, "wifi_client_v1" },
@@ -59,14 +61,22 @@ os.pullEvent = function()
     return table.unpack(events[index])
 end
 peripheral = {
+    find = function() return nil end,
     getNames = function() return { "left" } end,
     getType = function() return "modem" end,
 }
+local discoveryPackets = {}
 rednet = {
     isOpen = function() return false end,
     open = function() end,
     close = function() end,
-    broadcast = function() end,
+    broadcast = function(packet)
+        if packet.kind == "beacon" then beacons[#beacons + 1] = packet end
+    end,
+    receive = function()
+        local packet = table.remove(discoveryPackets, 1)
+        if packet then return packet.senderID, packet.message end
+    end,
     send = function(id, packet, protocol)
         responses[#responses + 1] = { id = id, packet = packet, protocol = protocol }
     end,
@@ -74,9 +84,30 @@ rednet = {
 printError = function() end
 
 local wifi = dofile("src\\main\\resources\\data\\computercraft\\lua\\rom\\modules\\main\\wifi.lua")
+discoveryPackets = {
+    {
+        senderID = 7,
+        message = {
+            kind = "beacon", wanIP = "22.145.56.55", ssid = "nearby", range = 60,
+            x = 4, y = 5, z = 6,
+        },
+    },
+    {
+        senderID = 8,
+        message = {
+            kind = "beacon", wanIP = "22.345.556.55", ssid = "invalid", range = 60,
+            x = 7, y = 8, z = 9,
+        },
+    },
+}
+local nearby = wifi.listNearbyRouters(nil, 0.1)
+assert(#nearby == 1 and nearby[1].wanIP == "22.145.56.55")
+assert(nearby[1].x == 4 and nearby[1].y == 5 and nearby[1].z == 6)
 assert(wifi.configureWan == nil, "WAN secret must not be configurable")
 local ok, err = pcall(wifi.run, router)
 assert(not ok and tostring(err):find("test complete", 1, true))
+assert(#beacons == 1 and beacons[1].wanIP == wan)
+assert(beacons[1].x == 1 and beacons[1].y == 2 and beacons[1].z == 3)
 assert(#registrations == 1 and registrations[1] == "client.example")
 local acknowledged = false
 for _, response in ipairs(responses) do

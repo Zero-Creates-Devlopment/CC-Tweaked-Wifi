@@ -9,7 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class WifiAirSecurityChecks {
-	private static final String WAN = "minecraft:overworld.1.2.3";
+	private static final String WAN = "22.145.56.55";
 
 	public static void main(String[] args) throws Exception {
 		WifiAirSessions.create(null, WAN, 1, true);
@@ -58,8 +58,8 @@ public final class WifiAirSecurityChecks {
 		check(WifiRouterPeripheral.matchesDestinationDomain("", null),
 				"explicit WAN and LAN addresses must remain supported");
 		WifiRouterNetwork network = new WifiRouterNetwork();
-		TestRouter home = new TestRouter("minecraft:overworld.1.2.3");
-		TestRouter remote = new TestRouter("minecraft:the_nether.400.60.-200");
+		TestRouter home = new TestRouter("22.145.56.55");
+		TestRouter remote = new TestRouter("19.84.216.3");
 		home.domains.put("home.example", "192.168.1.100");
 		remote.domains.put("storage.example", "192.168.1.101");
 		remote.domains.put("offline.example", "");

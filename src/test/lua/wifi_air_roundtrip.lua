@@ -9,7 +9,7 @@ textutils = {
     unserialize = function(value) return values[value] end,
 }
 
-local wan = "minecraft:overworld.1.2.3"
+local wan = "22.145.56.55"
 local received, registered, delivered
 local registrationCount, sensitivePackets = 0, {}
 local token = string.rep("a", 64)
@@ -19,7 +19,9 @@ local router = {
         return { wanIP = wan, ssid = "test", revision = 0, wanRevision = 0, wanEnabled = false }
     end,
     getNetworkConfig = function() return { announceIntervalSeconds = 3, peerTimeoutSeconds = 12 } end,
-    getWifi = function() return { range = 60, security = "password", connectedClients = 0 } end,
+    getWifi = function()
+        return { range = 60, security = "password", connectedClients = 0, x = 1, y = 2, z = 3 }
+    end,
     beginAirJoin = function()
         return { challenge = "challenge", ssid = "test", wanIP = wan }
     end,

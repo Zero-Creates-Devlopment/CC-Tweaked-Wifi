@@ -18,8 +18,15 @@ local function validWan(address)
     if type(address) ~= "string" then
         return false
     end
-    local dimension, x, y, z = address:match("^(.+)%.(-?%d+)%.(-?%d+)%.(-?%d+)$")
-    return dimension ~= nil and x ~= nil and y ~= nil and z ~= nil
+    local first, second, third, fourth = address:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    if not first then return false end
+    for _, octet in ipairs({ first, second, third, fourth }) do
+        local value = tonumber(octet)
+        if #octet > 3 or not value or value > 255 or tostring(value) ~= octet then
+            return false
+        end
+    end
+    return true
 end
 
 local function yieldExecution()
@@ -863,10 +870,8 @@ function M.listNearbyRouters(routerName, duration)
         if type(packet) == "table" and packet.kind == "beacon" and validWan(packet.wanIP)
                 and type(packet.ssid) == "string" and type(packet.range) == "number"
                 and packet.range >= 1 and packet.range <= 1024 then
-            local _, routerX, routerY, routerZ =
-                packet.wanIP:match("^(.+)%.(-?%d+)%.(-?%d+)%.(-?%d+)$")
-            routerX, routerY, routerZ = tonumber(routerX), tonumber(routerY), tonumber(routerZ)
-            if routerX and routerY and routerZ then
+            local routerX, routerY, routerZ = packet.x, packet.y, packet.z
+            if type(routerX) == "number" and type(routerY) == "number" and type(routerZ) == "number" then
                 if not seen[packet.wanIP] then
                     seen[packet.wanIP] = true
                     nearby[#nearby + 1] = {
@@ -927,15 +932,14 @@ function M.run(routerName)
         end
 
         local function announce()
-            local _, x, y, z = wanIP:match("^(.+)%.(-?%d+)%.(-?%d+)%.(-?%d+)$")
             local wifiInfo = router.getWifi()
             rednet.broadcast({
                 kind = "beacon",
                 wanIP = wanIP,
                 ssid = ssid,
-                x = tonumber(x),
-                y = tonumber(y),
-                z = tonumber(z),
+                x = wifiInfo.x,
+                y = wifiInfo.y,
+                z = wifiInfo.z,
                 range = wifiInfo.range,
                 secured = wifiInfo.security == "password",
                 connectedClients = wifiInfo.connectedClients,

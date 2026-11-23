@@ -10,7 +10,7 @@ Wi-Fi Router is a NeoForge mod for Minecraft 1.21.1 that adds a craftable CC:Twe
 - Automatic server-wide routing and domain sharing between loaded routers.
 - Password-protected wireless LAN traffic; open networks remain readable.
 
-Each router has a WAN address derived from its dimension and coordinates. LAN addresses can repeat across routers. Loaded routers communicate server-wide, including across dimensions, without linking or modem reach.
+Each router gets a random IPv4-style WAN address that remains saved with that router. LAN addresses can repeat across routers. Loaded routers communicate server-wide, including across dimensions, without linking or modem reach.
 
 ## Documentation
 

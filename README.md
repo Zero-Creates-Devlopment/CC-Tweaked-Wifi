@@ -37,7 +37,7 @@ assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 
 Use an empty password for an open network. Changing either credential disconnects current LAN clients; they must reconnect with the new SSID and password.
 
-Each router's WAN address identifies its dimension and block coordinates, such as `minecraft:overworld.12.64.-30`. Computers connected to the same router use its private `192.168.1.x` LAN; those LAN addresses are local to that router and may repeat on another router.
+Each router gets a random IPv4-style WAN address, such as `22.145.56.55`, which remains saved with that router. Computers connected to the same router use its private `192.168.1.x` LAN; those LAN addresses are local to that router and may repeat on another router.
 
 Client joins require a modem. `wifi.connect(ssid, password)` discovers and joins a router over the air using a wireless modem; it does not require the client computer to be connected to the router peripheral or a wired modem and does not require GPS setup.
 
