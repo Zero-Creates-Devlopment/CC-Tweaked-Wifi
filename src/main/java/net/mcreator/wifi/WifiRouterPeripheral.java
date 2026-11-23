@@ -595,8 +595,7 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 			destinationDomain = destinationWan.toLowerCase(Locale.ROOT);
 			destinationWan = route.wanIP();
 			destinationLan = route.lanIP();
-		} else if (DOMAIN.matcher(destinationWan.toLowerCase(Locale.ROOT)).matches()
-				|| !WAN.matcher(destinationWan).matches() || !IPV4.matcher(destinationLan).matches()) {
+		} else if (!validWanRoute(destinationWan, destinationLan)) {
 			return false;
 		}
 		if (destinationWan.equals(getWanIP())) {
@@ -638,6 +637,10 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		} catch (java.io.IOException exception) {
 			throw new LuaException("Unable to encode WAN packet: " + exception.getMessage());
 		}
+	}
+
+	static boolean validWanRoute(String wanIP, String lanIP) {
+		return WAN.matcher(wanIP).matches() && IPV4.matcher(lanIP).matches();
 	}
 
 	@Override
