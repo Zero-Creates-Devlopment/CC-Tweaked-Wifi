@@ -30,7 +30,7 @@ Returns a table with `connected`, `ssid`, `wanIP`, and `lanIP` when connected. A
 
 ### `wifi.getIP([routerName])` and `wifi.getWanIP([routerName])`
 
-Return the current LAN and router WAN addresses. `getIP` returns `nil` for a disconnected wireless client and `""` for an attached but unconnected client. `getWanIP` returns `nil` without an attached router or active connection. A WAN address identifies a dimension and router coordinates, for example `minecraft:overworld.12.64.-30`.
+Return the current LAN and router WAN addresses. `getIP` returns `nil` for a disconnected wireless client and `""` for an attached but unconnected client. `getWanIP` returns `nil` without an attached router or active connection. Each router has a randomly assigned IPv4-style WAN address, such as `22.145.56.55`, saved with the router.
 
 ## Domains
 

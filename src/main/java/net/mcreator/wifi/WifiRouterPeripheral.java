@@ -35,7 +35,8 @@ import java.util.regex.Pattern;
 public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwork.Router {
 	private static final Pattern IPV4 = Pattern.compile(
 			"192\\.168\\.1\\.(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])");
-	private static final Pattern WAN = Pattern.compile(".+\\.-?\\d+\\.-?\\d+\\.-?\\d+");
+	private static final String IPV4_OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
+	private static final Pattern WAN = Pattern.compile(IPV4_OCTET + "(?:\\." + IPV4_OCTET + "){3}");
 	private static final Pattern DOMAIN = WifiDomainReservations.DOMAIN;
 	private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -46,6 +47,8 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 	private final WifiDomainReservations reservations = new WifiDomainReservations();
 	private String ssid = "MC-WiFi";
 	private String password = "";
+	@Nullable
+	private String wanIP;
 	private long wifiRevision;
 	@Nullable
 	private IComputerAccess bridge;
@@ -99,13 +102,24 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		result.put("connectedClients", clients.size());
 		result.put("range", WifiMod.WIRELESS_RANGE.get());
 		result.put("maxClients", WifiMod.MAX_CLIENTS.get());
+		result.put("x", target.getBlockPos().getX());
+		result.put("y", target.getBlockPos().getY());
+		result.put("z", target.getBlockPos().getZ());
 		return result;
 	}
 
 	@LuaFunction(mainThread = true)
-	public final String getWanIP() {
-		return target.getLevel().dimension().identifier() + "." + target.getBlockPos().getX() + "."
-				+ target.getBlockPos().getY() + "." + target.getBlockPos().getZ();
+	public final synchronized String getWanIP() {
+		if (wanIP == null) {
+			wanIP = randomWanIP();
+			target.setChanged();
+		}
+		return wanIP;
+	}
+
+	private static String randomWanIP() {
+		return RANDOM.nextInt(1, 255) + "." + RANDOM.nextInt(1, 255) + "."
+				+ RANDOM.nextInt(1, 255) + "." + RANDOM.nextInt(1, 255);
 	}
 
 	@LuaFunction(mainThread = true)
@@ -695,12 +709,17 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 	void save(ValueOutput output) {
 		output.putString("Ssid", ssid);
 		output.putString("Password", password);
+		if (wanIP != null) {
+			output.putString("WanIP", wanIP);
+		}
 		reservations.save(output);
 	}
 
 	synchronized void load(ValueInput input) {
 		ssid = input.getStringOr("Ssid", ssid);
 		password = input.getStringOr("Password", password);
+		String savedWanIP = input.getStringOr("WanIP", "");
+		wanIP = WAN.matcher(savedWanIP).matches() ? savedWanIP : null;
 		reservations.load(input);
 	}
 
