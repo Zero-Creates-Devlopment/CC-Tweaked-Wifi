@@ -57,6 +57,12 @@ public final class WifiAirSecurityChecks {
 				"stale domain routes must not deliver to a different LAN client");
 		check(WifiRouterPeripheral.matchesDestinationDomain("", null),
 				"explicit WAN and LAN addresses must remain supported");
+		check(WifiRouterPeripheral.validWanRoute("109.98.114.16", "192.168.1.100"),
+				"IPv4 WAN and LAN addresses must be accepted even when the WAN resembles a domain");
+		check(!WifiRouterPeripheral.validWanRoute("storage.example", "192.168.1.100")
+				&& !WifiRouterPeripheral.validWanRoute("256.98.114.16", "192.168.1.100")
+				&& !WifiRouterPeripheral.validWanRoute("109.98.114.16", "192.168.1.255"),
+				"invalid WAN or LAN destinations must be rejected");
 		WifiRouterNetwork network = new WifiRouterNetwork();
 		TestRouter home = new TestRouter("22.145.56.55");
 		TestRouter remote = new TestRouter("19.84.216.3");
