@@ -105,3 +105,27 @@ Sets LAN credentials. The SSID must be nonblank and at most 32 characters; the p
 ### `wifi.run([routerName])`
 
 Runs the bridge loop on an attached computer with at least one wired or wireless modem. Only one computer can bridge a router at a time. Keep it running for wireless clients; server-wide routing itself does not require a bridge.
+
+## HTTP helpers (`wifi_http`)
+
+`wifi_http` is available as a global on every computer, with no `require`. It runs HTTP-style requests over `wifi.send`/`wifi.receive` threads: each request starts a new thread and the response returns on the same thread. The module is also available as `require("wifi_http")`.
+
+### `wifi_http.request(method, host, path [, options])`
+
+Sends a request to a WAN address or domain and waits for the response. `method` is any of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `TRACE`, `CONNECT` (case-insensitive). `options` may contain `headers`, `body`, `timeout` (seconds, default 10) and `router`. Returns `{ status, ok, headers, body, from, thread }` or `nil, reason`. Shortcuts: `wifi_http.get`, `.head`, `.options`, `.delete`, `.trace`, `.connect` take `(host, path [, options])`; `.post`, `.put`, `.patch` take `(host, path, body [, options])`.
+
+### `wifi_http.server()`
+
+Creates a server. Register handlers with `server:get(path, fn)`, `:post`, `:put`, `:patch`, `:delete`, `:head`, `:options`, or `server:route(method, path, fn)` (`"*"` matches any method; a path ending in `*` is a prefix match). `server:default(fn)` handles unmatched requests. Handlers receive `{ method, path, query, rawQuery, headers, body, fromWan, fromLan, thread }` and return `status, body, headers` or a `{ status, body, headers }` table; a lone non-number return value is a 200 body. Unmatched paths return 404, wrong methods 405, and handler errors 500. Run it with `server:run([{ poll, router, stop }])`, which blocks until `stop()` returns true.
+
+```lua
+local server = wifi_http.server()
+server:get("/hello", function() return 200, "hi" end)
+server:post("/echo", function(req) return 201, req.body end)
+server:run()
+```
+
+```lua
+local response = wifi_http.get("example.com", "/hello")
+print(response.status, response.body)
+```
