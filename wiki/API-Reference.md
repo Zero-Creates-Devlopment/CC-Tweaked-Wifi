@@ -1,10 +1,6 @@
 # `wifi` API reference
 
-```lua
-local wifi = require("wifi")
-```
-
-The module is available in CC:Tweaked's ROM. Functions taking `routerName` accept an optional peripheral name; otherwise the module finds an attached router or, where supported, uses the active wireless connection. Configuration, client listing, static IP assignment, network configuration, and the bridge require an attached router.
+The module is installed in CC:Tweaked's ROM and exposed as the global `wifi` during computer startup. Functions taking `routerName` accept an optional peripheral name; otherwise the module finds an attached router or, where supported, uses the active wireless connection. Configuration, client listing, static IP assignment, network configuration, and the bridge require an attached router.
 
 ## Connections and discovery
 

@@ -16,7 +16,6 @@ Place the router and attach a CC:Tweaked computer so it can access the router pe
 On the attached computer, start Lua and configure the LAN:
 
 ```lua
-local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 ```
 
@@ -35,7 +34,6 @@ Keep this program running. This same computer can configure and bridge the route
 Give another computer a wireless modem and run:
 
 ```lua
-local wifi = require("wifi")
 local ok, warning = wifi.connect("WorkshopNet", "change-me-123")
 assert(ok, warning)
 if warning then print(warning) end

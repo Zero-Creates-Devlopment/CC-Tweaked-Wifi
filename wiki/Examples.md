@@ -1,13 +1,12 @@
 # Examples
 
-These examples use `require("wifi")`. Configure a router and run its bridge as shown in [Quick Start](Quick-Start). Replace example credentials with your own.
+The global `wifi` API is available automatically after computer startup; `require("wifi")` is optional. Configure a router and run its bridge as shown in [Quick Start](Quick-Start). Replace example credentials with your own.
 
 ## Discover and connect
 
 On a computer with a wireless modem:
 
 ```lua
-local wifi = require("wifi")
 local routers, reason = wifi.listNearbyRouters(nil, 5)
 assert(routers, reason)
 for _, router in ipairs(routers) do
@@ -25,7 +24,6 @@ print("Connected:", wifi.getStatus().connected)
 On one connected computer, reserve a name:
 
 ```lua
-local wifi = require("wifi")
 local ok, warning = wifi.registerDomain("storage.example")
 assert(ok, warning)
 if warning then print(warning) end
@@ -43,7 +41,6 @@ end
 On a different connected computer:
 
 ```lua
-local wifi = require("wifi")
 local ok, reason = wifi.send("storage.example", { request = "inventory" })
 assert(ok, reason)
 ```
@@ -72,12 +69,11 @@ if packet and packet.thread then
 end
 ```
 
-Replies to a WAN address are also broadcasts. The snippets assume `wifi` is already required and connected. Wireless clients need their local bridge running.
+Replies to a WAN address are also broadcasts. The snippets use the automatically available global `wifi` and assume the computer is connected. Wireless clients need their local bridge running.
 
 ## Inspect reservations
 
 ```lua
-local wifi = require("wifi")
 local records, reason = wifi.getDomainRecords()
 assert(records, reason)
 for _, record in ipairs(records) do
@@ -92,7 +88,6 @@ Offline reservations have an empty LAN IP. Names claimed while another router is
 On the owner computer, export the token and save it privately outside the computer. Do not broadcast or publish it:
 
 ```lua
-local wifi = require("wifi")
 local token, reason = wifi.exportDomainToken("storage.example")
 assert(token, reason)
 -- Copy token to a private backup using your chosen secure method.
@@ -101,7 +96,6 @@ assert(token, reason)
 On the replacement computer, after the previous owner disconnects, obtain that private backup and run:
 
 ```lua
-local wifi = require("wifi")
 local token = "paste-your-private-token-here"
 local ok, reason = wifi.importDomainToken("storage.example", token)
 assert(ok, reason)
