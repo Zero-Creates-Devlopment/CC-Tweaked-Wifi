@@ -66,19 +66,21 @@ Deletes the local token only; it does not release the reservation. Returns `true
 
 ## Messaging
 
-### `wifi.send(recipient, message)`
+### `wifi.send(recipient, message [, thread])`
 
-Sends to a local LAN IP or a unique online domain on any loaded router. Returns a boolean and may return a reason. Self-sends are rejected.
+Broadcasts to every connected client on a loaded router when `recipient` is its WAN address; on the same router, the sender is excluded. It also supports local LAN IPs and unique online domains. A loaded WAN address takes precedence if it matches a local LAN address. Returns `true, thread` on success or `false, reason` on failure. A new random thread token is generated unless one is supplied. Pass the received `packet.thread` when replying to continue the conversation. Tokens are 64 lowercase hexadecimal characters and are not authentication or confidentiality.
 
 ### `wifi.sendWAN(destination, lanIP, message [, routerName])`
 
-Sends to a WAN address and its LAN IP, or to a domain using `wifi.sendWAN(domain, nil, message)`. The equivalent `wifi.send(destination, lanIP, message [, routerName])` form is also supported. Loaded routers route server-wide without linking. A successful send places the message in the destination inbox, but does not guarantee the application reads it. Wireless clients require their local bridge.
+Legacy targeted send to a WAN address and its LAN IP, or to a domain using `wifi.sendWAN(domain, nil, message)`. These packets do not have a thread token. The old `wifi.send(destination, lanIP, message)` form is no longer supported; use `wifi.sendWAN` for targeted delivery. Loaded routers route server-wide without linking. A successful send places the message in the destination inbox, but does not guarantee the application reads it. Wireless clients require their local bridge.
 
 Messages can be strings, numbers, booleans, or serializable non-cyclic tables. WAN payloads are limited to 64 KiB, 64 levels of nesting, and 65,536 table entries.
 
 ### `wifi.receive([timeout [, routerName]])`
 
-Returns the next queued packet, or `nil` on timeout; failures may also return a reason. Packet fields are `from` and `fromLan` (source LAN IP), `fromWan` (source router WAN address), `domain` (source domain or `""`), and `message`. There is no timestamp. Use both `fromWan` and `fromLan` to reply across routers.
+Returns the next queued packet, or `nil` on timeout; failures may also return a reason. Packet fields are `from` and `fromLan` (source LAN IP), `fromWan` (source router WAN address), `domain` (source domain or `""`), `message`, and `thread` (absent on legacy sends). There is no timestamp.
+
+`wifi.receive(thread [, timeout [, routerName]])` returns the next packet with that thread, leaving other packets in the inbox. Receive without a thread to discover the token on the first incoming packet. The sender receives its token as the second return from `wifi.send`.
 
 For attached routers, omitted or zero timeout polls immediately. For wireless clients, an omitted timeout waits, while zero currently returns immediately without polling. A positive timeout works for either connection. The inbox retains messages until read or displaced by newer messages when full.
 

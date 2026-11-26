@@ -10,7 +10,8 @@ textutils = {
 }
 
 local wan = "22.145.56.55"
-local received, registered, delivered
+local registered, delivered
+local inbox = {}
 local registrationCount, sensitivePackets = 0, {}
 local token = string.rep("a", 64)
 local router = {
@@ -48,12 +49,17 @@ local router = {
         end
         return { requestId = requestId, success = true }
     end,
-    sendAir = function(_, recipient, message) delivered = { recipient, message }; return true end,
+    sendAir = function(_, recipient, message, thread)
+        delivered = { recipient, message, thread }
+        return true
+    end,
     nextWanPacket = function() return nil end,
-    receiveAir = function()
-        if received then return nil end
-        received = true
-        return { from = "192.168.1.100", message = "reply" }
+    receiveAir = function(_, thread)
+        for i, packet in ipairs(inbox) do
+            if not thread or packet.thread == thread then
+                return table.remove(inbox, i)
+            end
+        end
     end,
     disconnectAir = function() return true end,
 }
@@ -165,10 +171,19 @@ assert(wifi.exportDomainToken("client.example") == token)
 assert(not wifi.importDomainToken("client.example", string.rep("b", 64)))
 assert(wifi.forgetDomainToken("client.example"))
 assert(wifi.importDomainToken("client.example", token))
-assert(wifi.send("192.168.1.100", "hello"))
-assert(delivered[1] == "192.168.1.100" and delivered[2] == "hello")
-local message = wifi.receive(2)
-assert(message and message.message == "reply")
+local sent, thread = wifi.send("22.145.56.56", "hello")
+assert(sent and thread == token)
+assert(delivered[1] == "22.145.56.56" and delivered[2] == "hello" and delivered[3] == thread)
+assert(wifi.send("22.145.56.56", "reply", thread))
+assert(delivered[3] == thread)
+assert(not wifi.send("22.145.56.56", "bad", "invalid"))
+inbox = {
+    { from = "192.168.1.100", message = "other", thread = string.rep("b", 64) },
+    { from = "192.168.1.100", message = "reply", thread = thread },
+}
+local message = wifi.receive(thread, 2)
+assert(message and message.message == "reply" and message.thread == thread)
+assert(wifi.receive(2).message == "other", "filtered receive must preserve other threads")
 assert(wifi.disconnect())
 pump()
 assert(wifi.connect("test", "password123"))
@@ -184,6 +199,17 @@ pump()
 router.getWanIP = function() return wan end
 router.connect = function() return true end
 router.disconnect = function() return true end
+router.send = function(recipient, message, thread)
+    delivered = { recipient, message, thread }
+    return true
+end
+router.receive = function(thread)
+    for i, packet in ipairs(inbox) do
+        if not thread or packet.thread == thread then
+            return table.remove(inbox, i)
+        end
+    end
+end
 router.registerDomain = function(domain, supplied)
     assert(supplied == token)
     registrationCount = registrationCount + 1
@@ -197,6 +223,14 @@ router.releaseDomain = function(domain, supplied)
 end
 peripheral.find = function() return router end
 assert(wifi.connect("test", "password123"))
+local wiredSent, wiredThread = wifi.send("22.145.56.56", "wired")
+assert(wiredSent and wiredThread == token and delivered[3] == wiredThread)
+inbox = {
+    { message = "other", thread = string.rep("b", 64) },
+    { message = "wired reply", thread = wiredThread },
+}
+assert(wifi.receive(wiredThread, 0).message == "wired reply")
+assert(wifi.receive().message == "other")
 assert(wifi.registerDomain("client.example"))
 assert(wifi.disconnect())
 assert(wifi.connect("test", "password123"))

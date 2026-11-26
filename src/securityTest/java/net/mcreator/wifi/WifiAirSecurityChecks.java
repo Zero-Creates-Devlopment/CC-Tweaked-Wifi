@@ -1,10 +1,15 @@
 package net.mcreator.wifi;
 
 import dan200.computercraft.api.lua.LuaException;
+import dan200.computercraft.api.peripheral.IComputerAccess;
 import net.minecraft.nbt.CompoundTag;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.ArrayDeque;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -63,6 +68,20 @@ public final class WifiAirSecurityChecks {
 				&& !WifiRouterPeripheral.validWanRoute("256.98.114.16", "192.168.1.100")
 				&& !WifiRouterPeripheral.validWanRoute("109.98.114.16", "192.168.1.255"),
 				"invalid WAN or LAN destinations must be rejected");
+		String threadA = "a".repeat(64);
+		String threadB = "b".repeat(64);
+		Map<String, Object> firstPacket = Map.of("thread", threadA, "message", "first");
+		Map<String, Object> secondPacket = Map.of("thread", threadB, "message", "second");
+		ArrayDeque<Map<String, Object>> inbox = new ArrayDeque<>();
+		inbox.add(firstPacket);
+		inbox.add(secondPacket);
+		check(WifiRouterPeripheral.pollInbox(inbox, "c".repeat(64)) == null && inbox.size() == 2,
+				"filtering for a missing thread must preserve the inbox");
+		check(WifiRouterPeripheral.pollInbox(inbox, threadB) == secondPacket,
+				"filtered receive must select the matching thread");
+		check(WifiRouterPeripheral.pollInbox(inbox, null) == firstPacket && inbox.isEmpty(),
+				"unmatched packets must remain available in order");
+		checkBroadcast(threadA);
 		WifiRouterNetwork network = new WifiRouterNetwork();
 		TestRouter home = new TestRouter("22.145.56.55");
 		TestRouter remote = new TestRouter("19.84.216.3");
@@ -142,6 +161,81 @@ public final class WifiAirSecurityChecks {
 		if (!condition) {
 			throw new AssertionError(message);
 		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private static void checkBroadcast(String thread) throws Exception {
+		WifiRouterPeripheral router = new WifiRouterPeripheral(null);
+		Field wan = WifiRouterPeripheral.class.getDeclaredField("wanIP");
+		wan.setAccessible(true);
+		wan.set(router, WAN);
+		Field clientsField = WifiRouterPeripheral.class.getDeclaredField("clients");
+		clientsField.setAccessible(true);
+		Map<Integer, Object> clients = (Map<Integer, Object>) clientsField.get(router);
+		Class<?> clientClass = Class.forName("net.mcreator.wifi.WifiRouterPeripheral$Client");
+		Constructor<?> wired = clientClass.getDeclaredConstructor(IComputerAccess.class);
+		Constructor<?> wireless = clientClass.getDeclaredConstructor(int.class);
+		wired.setAccessible(true);
+		wireless.setAccessible(true);
+		Field ip = clientClass.getDeclaredField("ip");
+		Field inboxField = clientClass.getDeclaredField("inbox");
+		ip.setAccessible(true);
+		inboxField.setAccessible(true);
+		int[] events = { 0 };
+		IComputerAccess computer = (IComputerAccess) Proxy.newProxyInstance(
+				IComputerAccess.class.getClassLoader(), new Class<?>[] { IComputerAccess.class },
+				(proxy, method, args) -> {
+					if (method.getName().equals("getID")) return 1;
+					if (method.getName().equals("queueEvent")) events[0]++;
+					return null;
+				});
+		Object first = wired.newInstance(computer);
+		Object second = wireless.newInstance(2);
+		ip.set(first, "192.168.1.100");
+		ip.set(second, "192.168.1.101");
+		clients.put(1, first);
+		clients.put(2, second);
+		Field bridge = WifiRouterPeripheral.class.getDeclaredField("bridge");
+		bridge.setAccessible(true);
+		bridge.set(router, computer);
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("sourceWan", "19.84.216.3");
+		payload.put("sourceLan", "192.168.1.102");
+		payload.put("destinationWan", WAN);
+		payload.put("destinationLan", "");
+		payload.put("destinationDomain", "");
+		payload.put("sourceDomain", "");
+		payload.put("broadcast", true);
+		payload.put("thread", thread);
+		payload.put("message", "broadcast");
+		Map<String, Object> decoded = WifiWanPayloadCodec.decode(WifiWanPayloadCodec.encode(payload));
+		check(Boolean.TRUE.equals(decoded.get("broadcast")) && thread.equals(decoded.get("thread"))
+				&& "".equals(decoded.get("destinationLan")), "WAN broadcast metadata must survive serialization");
+		var broadcast = WifiRouterPeripheral.class.getDeclaredMethod("broadcast", java.util.Collection.class,
+				Map.class, int.class, boolean.class, boolean.class, int.class);
+		broadcast.setAccessible(true);
+		Map<String, Object> packet = Map.of("fromWan", payload.get("sourceWan"), "fromLan", payload.get("sourceLan"),
+				"thread", thread, "message", "broadcast");
+		check((boolean) broadcast.invoke(null, clients.values(), packet, -1, true, true, 64),
+				"WAN broadcast must deliver to connected clients");
+		ArrayDeque<Map<String, Object>> firstInbox = (ArrayDeque<Map<String, Object>>) inboxField.get(first);
+		ArrayDeque<Map<String, Object>> secondInbox = (ArrayDeque<Map<String, Object>>) inboxField.get(second);
+		check(firstInbox.size() == 1 && secondInbox.size() == 1 && events[0] == 1,
+				"broadcast must reach both wired and wireless clients and notify wired clients");
+		check(thread.equals(firstInbox.peek().get("thread")) && thread.equals(secondInbox.peek().get("thread")),
+				"broadcast must preserve the thread token for every recipient");
+		check((boolean) broadcast.invoke(null, clients.values(), packet, 1, true, false, 1)
+				&& firstInbox.size() == 1 && secondInbox.size() == 1,
+				"local broadcasts must exclude the sender and respect inbox limits");
+		payload.put("thread", "invalid");
+		check(!router.deliverWan(payload) && firstInbox.size() == 1 && secondInbox.size() == 1,
+				"invalid thread tokens must not be delivered");
+		payload.put("thread", thread);
+		payload.put("destinationDomain", "storage.example");
+		check(!router.deliverWan(payload), "domain-targeted packets must not be broadcast");
+		clients.clear();
+		check(!(boolean) broadcast.invoke(null, clients.values(), packet, -1, true, true, 64),
+				"broadcast to an empty router must fail");
 	}
 
 	private static void reject(Checked action) throws Exception {
