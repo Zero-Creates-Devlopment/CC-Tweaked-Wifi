@@ -23,10 +23,12 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -37,6 +39,7 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 			"192\\.168\\.1\\.(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])");
 	private static final String IPV4_OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
 	private static final Pattern WAN = Pattern.compile(IPV4_OCTET + "(?:\\." + IPV4_OCTET + "){3}");
+	private static final Pattern THREAD = Pattern.compile("[0-9a-f]{64}");
 	private static final Pattern DOMAIN = WifiDomainReservations.DOMAIN;
 	private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -221,12 +224,23 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 
 	@LuaFunction(mainThread = true)
 	public final synchronized boolean send(IComputerAccess computer, IArguments arguments) throws LuaException {
-		requireArgumentCount(arguments, 2, "recipient, message");
+		if (arguments.count() != 2 && arguments.count() != 3) {
+			throw new LuaException("Expected recipient, message, and optional thread token");
+		}
 		String recipient = arguments.getString(0);
 		Object message = getRednetMessage(arguments, 1);
+		String thread = getThreadArgument(arguments, 2);
 		Client sender = clients.get(computer.getID());
+		return sendClientPacket(computer.getID(), sender, recipient, message, thread);
+	}
+
+	private boolean sendClientPacket(int sourceComputerId, @Nullable Client sender, String recipient, Object message,
+			@Nullable String thread) throws LuaException {
 		if (sender == null) {
 			return false;
+		}
+		if (WAN.matcher(recipient).matches() && network().hasRouter(recipient)) {
+			return sendWanPacket(sourceComputerId, sender, recipient, null, message, thread);
 		}
 		if (!IPV4.matcher(recipient).matches() && resolveDomainRoute(recipient) == null) {
 			return false;
@@ -236,13 +250,10 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 				.findFirst()
 				.orElse(null);
 		if (destination == null) {
-			return sendWanPacket(computer.getID(), sender, recipient, null, message);
+			return sendWanPacket(sourceComputerId, sender, recipient, null, message, thread);
 		}
-		if (destination.computerID == computer.getID() || (destination.computer == null && bridge == null)) {
+		if (destination.computerID == sourceComputerId || (destination.computer == null && bridge == null)) {
 			return false;
-		}
-		while (destination.inbox.size() >= WifiMod.MAX_INBOX_SIZE.get()) {
-			destination.inbox.removeFirst();
 		}
 		Map<String, Object> packet = new LinkedHashMap<>();
 		packet.put("from", sender.ip);
@@ -250,10 +261,10 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		packet.put("fromLan", sender.ip);
 		packet.put("domain", sender.domain == null ? "" : sender.domain);
 		packet.put("message", message);
-		destination.inbox.addLast(packet);
-		if (destination.computer != null) {
-			destination.computer.queueEvent("wifi_message", sender.ip, message);
+		if (thread != null) {
+			packet.put("thread", thread);
 		}
+		enqueue(destination, packet, false);
 		return true;
 	}
 
@@ -431,50 +442,32 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 	@LuaFunction(mainThread = true)
 	public final synchronized boolean sendAir(IComputerAccess computer, IArguments arguments) throws LuaException {
 		requireBridge(computer);
-		requireArgumentCount(arguments, 3, "client computer ID, recipient, message");
+		if (arguments.count() != 3 && arguments.count() != 4) {
+			throw new LuaException("Expected client computer ID, recipient, message, and optional thread token");
+		}
 		int clientComputerId = arguments.getInt(0);
 		String recipient = arguments.getString(1);
 		Object message = getRednetMessage(arguments, 2);
+		String thread = getThreadArgument(arguments, 3);
 		Client sender = clients.get(clientComputerId);
 		if (sender == null || sender.computer != null) {
 			return false;
 		}
-		if (!IPV4.matcher(recipient).matches() && resolveDomainRoute(recipient) == null) {
-			return false;
-		}
-		Client destination = clients.values().stream()
-				.filter(client -> recipient.equals(client.ip) || recipient.equalsIgnoreCase(client.domain))
-				.findFirst()
-				.orElse(null);
-		if (destination == null) {
-			return sendWanPacket(clientComputerId, sender, recipient, null, message);
-		}
-		if (destination.computerID == clientComputerId || (destination.computer == null && bridge == null)) {
-			return false;
-		}
-
-		Map<String, Object> packet = new LinkedHashMap<>();
-		packet.put("from", sender.ip);
-		packet.put("fromWan", getWanIP());
-		packet.put("fromLan", sender.ip);
-		packet.put("domain", sender.domain == null ? "" : sender.domain);
-		packet.put("message", message);
-		while (destination.inbox.size() >= WifiMod.MAX_INBOX_SIZE.get()) {
-			destination.inbox.removeFirst();
-		}
-		destination.inbox.addLast(packet);
-		if (destination.computer != null) {
-			destination.computer.queueEvent("wifi_message", sender.ip, message);
-		}
-		return true;
+		return sendClientPacket(clientComputerId, sender, recipient, message, thread);
 	}
 
 	@LuaFunction(mainThread = true)
 	@Nullable
-	public final synchronized Map<String, Object> receiveAir(IComputerAccess computer, int clientComputerId) {
+	public final synchronized Map<String, Object> receiveAir(IComputerAccess computer, IArguments arguments)
+			throws LuaException {
 		requireBridge(computer);
+		if (arguments.count() != 1 && arguments.count() != 2) {
+			throw new LuaException("Expected client computer ID and optional thread token");
+		}
+		int clientComputerId = arguments.getInt(0);
+		String thread = getThreadArgument(arguments, 1);
 		Client client = clients.get(clientComputerId);
-		return client == null || client.computer != null ? null : client.inbox.pollFirst();
+		return client == null || client.computer != null ? null : pollInbox(client.inbox, thread);
 	}
 
 	@LuaFunction(mainThread = true)
@@ -563,7 +556,7 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		@Nullable String destinationLan = getOptionalString(arguments, 1, "LAN IP");
 		Object message = getRednetMessage(arguments, 2);
 		Client sender = clients.get(computer.getID());
-		return sendWanPacket(computer.getID(), sender, destinationWan, destinationLan, message);
+		return sendWanPacket(computer.getID(), sender, destinationWan, destinationLan, message, null);
 	}
 
 	@LuaFunction(mainThread = true)
@@ -578,16 +571,18 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		if (sender == null || sender.computer != null) {
 			return false;
 		}
-		return sendWanPacket(clientComputerId, sender, destinationWan, destinationLan, message);
+		return sendWanPacket(clientComputerId, sender, destinationWan, destinationLan, message, null);
 	}
 
 	private boolean sendWanPacket(int sourceComputerId, @Nullable Client sender, String destinationWan,
-			@Nullable String destinationLan, Object message) throws LuaException {
+			@Nullable String destinationLan, Object message, @Nullable String thread) throws LuaException {
 		if (sender == null) {
 			return false;
 		}
 		String destinationDomain = "";
-		if (destinationLan == null) {
+		boolean broadcast = destinationLan == null && WAN.matcher(destinationWan).matches()
+				&& network().hasRouter(destinationWan);
+		if (destinationLan == null && !broadcast) {
 			WifiRouterNetwork.Route route = resolveDomainRoute(destinationWan);
 			if (route == null) {
 				return false;
@@ -595,10 +590,22 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 			destinationDomain = destinationWan.toLowerCase(Locale.ROOT);
 			destinationWan = route.wanIP();
 			destinationLan = route.lanIP();
-		} else if (!validWanRoute(destinationWan, destinationLan)) {
+		} else if (!broadcast && !validWanRoute(destinationWan, destinationLan)) {
 			return false;
 		}
 		if (destinationWan.equals(getWanIP())) {
+			if (broadcast) {
+				Map<String, Object> packet = new LinkedHashMap<>();
+				packet.put("from", sender.ip);
+				packet.put("fromWan", getWanIP());
+				packet.put("fromLan", sender.ip);
+				packet.put("domain", sender.domain == null ? "" : sender.domain);
+				packet.put("message", message);
+				if (thread != null) {
+					packet.put("thread", thread);
+				}
+				return broadcast(packet, sourceComputerId, false);
+			}
 			String targetLanIP = destinationLan;
 			Client destination = clients.values().stream()
 					.filter(client -> targetLanIP.equals(client.ip))
@@ -613,24 +620,25 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 			localPacket.put("fromLan", sender.ip);
 			localPacket.put("domain", sender.domain == null ? "" : sender.domain);
 			localPacket.put("message", message);
-			while (destination.inbox.size() >= WifiMod.MAX_INBOX_SIZE.get()) {
-				destination.inbox.removeFirst();
+			if (thread != null) {
+				localPacket.put("thread", thread);
 			}
-			destination.inbox.addLast(localPacket);
-			if (destination.computer != null) {
-				destination.computer.queueEvent("wifi_message", sender.ip, message);
-			}
+			enqueue(destination, localPacket, false);
 			return true;
 		}
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("destinationWan", destinationWan);
-		payload.put("destinationLan", destinationLan);
+		payload.put("destinationLan", broadcast ? "" : destinationLan);
 		payload.put("destinationDomain", destinationDomain);
+		payload.put("broadcast", broadcast);
 		payload.put("sourceWan", getWanIP());
 		payload.put("sourceLan", sender.ip);
 		payload.put("sourceDomain", sender.domain == null ? "" : sender.domain);
 		payload.put("message", message);
+		if (thread != null) {
+			payload.put("thread", thread);
+		}
 		try {
 			byte[] serialized = WifiWanPayloadCodec.encode(payload);
 			return network().deliver(destinationWan, WifiWanPayloadCodec.decode(serialized));
@@ -651,13 +659,32 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		String destinationLan = payload.get("destinationLan") instanceof String value ? value : "";
 		String destinationDomain = payload.get("destinationDomain") instanceof String value ? value : null;
 		String sourceDomain = payload.get("sourceDomain") instanceof String value ? value : "";
+		Object broadcastValue = payload.get("broadcast");
+		boolean broadcast = Boolean.TRUE.equals(broadcastValue);
+		Object threadValue = payload.get("thread");
 		Object message = payload.get("message");
 		if (!WAN.matcher(payloadSourceWan).matches() || !getWanIP().equals(payloadDestinationWan)
-				|| !IPV4.matcher(sourceLan).matches() || !IPV4.matcher(destinationLan).matches()
+				|| !IPV4.matcher(sourceLan).matches()
+				|| (broadcast ? !destinationLan.isEmpty() : !IPV4.matcher(destinationLan).matches())
 				|| destinationDomain == null || (!destinationDomain.isEmpty()
 						&& !DOMAIN.matcher(destinationDomain).matches())
+				|| (broadcast && !destinationDomain.isEmpty())
+				|| (broadcastValue != null && !(broadcastValue instanceof Boolean))
+				|| (threadValue != null && (!(threadValue instanceof String value) || !THREAD.matcher(value).matches()))
 				|| sourceDomain.length() > 253 || !isRednetValue(message, new IdentityHashMap<>())) {
 			return false;
+		}
+		Map<String, Object> packet = new LinkedHashMap<>();
+		packet.put("from", sourceLan);
+		packet.put("fromWan", payloadSourceWan);
+		packet.put("fromLan", sourceLan);
+		packet.put("domain", sourceDomain);
+		packet.put("message", message);
+		if (threadValue != null) {
+			packet.put("thread", threadValue);
+		}
+		if (broadcast) {
+			return broadcast(packet, -1, true);
 		}
 		Client destination = clients.values().stream()
 				.filter(client -> destinationLan.equals(client.ip))
@@ -666,21 +693,44 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		if (destination == null || !matchesDestinationDomain(destinationDomain, destination.domain)) {
 			return false;
 		}
+		enqueue(destination, packet, true);
+		return true;
+	}
 
-		Map<String, Object> packet = new LinkedHashMap<>();
-		packet.put("from", sourceLan);
-		packet.put("fromWan", payloadSourceWan);
-		packet.put("fromLan", sourceLan);
-		packet.put("domain", sourceDomain);
-		packet.put("message", message);
-		destination.inbox.addLast(packet);
-		while (destination.inbox.size() > WifiMod.MAX_INBOX_SIZE.get()) {
+	private boolean broadcast(Map<String, Object> packet, int excludedComputerId, boolean remote) {
+		return broadcast(clients.values(), packet, excludedComputerId, bridge != null, remote,
+				WifiMod.MAX_INBOX_SIZE.get());
+	}
+
+	private static boolean broadcast(Collection<Client> clients, Map<String, Object> packet, int excludedComputerId,
+			boolean hasBridge, boolean remote, int inboxLimit) {
+		boolean delivered = false;
+		for (Client client : clients) {
+			if (client.computerID != excludedComputerId && (client.computer != null || hasBridge)) {
+				enqueue(client, packet, remote, inboxLimit);
+				delivered = true;
+			}
+		}
+		return delivered;
+	}
+
+	private void enqueue(Client destination, Map<String, Object> packet, boolean remote) {
+		enqueue(destination, packet, remote, WifiMod.MAX_INBOX_SIZE.get());
+	}
+
+	private static void enqueue(Client destination, Map<String, Object> packet, boolean remote, int inboxLimit) {
+		while (destination.inbox.size() >= inboxLimit) {
 			destination.inbox.removeFirst();
 		}
+		destination.inbox.addLast(packet);
 		if (destination.computer != null) {
-			destination.computer.queueEvent("wifi_message", payloadSourceWan, sourceLan, message);
+			if (remote) {
+				destination.computer.queueEvent("wifi_message", packet.get("fromWan"), packet.get("fromLan"),
+						packet.get("message"));
+			} else {
+				destination.computer.queueEvent("wifi_message", packet.get("fromLan"), packet.get("message"));
+			}
 		}
-		return true;
 	}
 
 	static boolean matchesDestinationDomain(String destinationDomain, @Nullable String clientDomain) {
@@ -689,9 +739,14 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 
 	@LuaFunction(mainThread = true)
 	@Nullable
-	public final synchronized Map<String, Object> receive(IComputerAccess computer) {
+	public final synchronized Map<String, Object> receive(IComputerAccess computer, IArguments arguments)
+			throws LuaException {
+		if (arguments.count() > 1) {
+			throw new LuaException("Expected an optional thread token");
+		}
+		String thread = getThreadArgument(arguments, 0);
 		Client client = clients.get(computer.getID());
-		return client == null ? null : client.inbox.pollFirst();
+		return client == null ? null : pollInbox(client.inbox, thread);
 	}
 
 	@LuaFunction(mainThread = true)
@@ -832,6 +887,33 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		if (arguments.count() != expected) {
 			throw new LuaException("Expected " + description);
 		}
+	}
+
+	@Nullable
+	private static String getThreadArgument(IArguments arguments, int index) throws LuaException {
+		if (arguments.count() <= index) {
+			return null;
+		}
+		String thread = getOptionalString(arguments, index, "Thread token");
+		if (thread != null && !THREAD.matcher(thread).matches()) {
+			throw new LuaException("Thread token must be 64 lowercase hexadecimal characters");
+		}
+		return thread;
+	}
+
+	@Nullable
+	static Map<String, Object> pollInbox(ArrayDeque<Map<String, Object>> inbox, @Nullable String thread) {
+		if (thread == null) {
+			return inbox.pollFirst();
+		}
+		for (Iterator<Map<String, Object>> iterator = inbox.iterator(); iterator.hasNext();) {
+			Map<String, Object> packet = iterator.next();
+			if (thread.equals(packet.get("thread"))) {
+				iterator.remove();
+				return packet;
+			}
+		}
+		return null;
 	}
 
 	@Nullable

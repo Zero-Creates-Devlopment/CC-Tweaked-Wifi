@@ -29,6 +29,10 @@ local function validWan(address)
     return true
 end
 
+local function validThread(thread)
+    return type(thread) == "string" and #thread == 64 and thread:match("^[0-9a-f]+$") ~= nil
+end
+
 local function yieldExecution()
     os.queueEvent("wifi_module_yield")
     os.pullEvent("wifi_module_yield")
@@ -535,49 +539,60 @@ end
 
 function M.send(...)
     local argumentCount = select("#", ...)
-    if argumentCount == 2 then
-        local recipient, message = ...
-        if type(recipient) ~= "string" then
-            return false, "Recipient must be an IP address or domain name"
-        end
-        if activeConnection then
-            if not validMessage(message) then
-                return false, "Message must be a serializable string, number, boolean, or table"
-            end
-            return sendAirRequest({
-                kind = "send",
-                recipient = recipient,
-                message = message,
-            })
-        end
-        local router = getRouter()
-        if router then
-            return router.send(recipient, message)
-        end
-        return false, "Not connected to a Wi-Fi router"
+    if argumentCount ~= 2 and argumentCount ~= 3 then
+        return false, "Expected recipient, message, and optional thread token"
     end
-
-    if argumentCount ~= 3 and argumentCount ~= 4 then
-        return false, "Expected (recipient, message) or (WAN address/domain, LAN IP, message)"
+    local recipient, message, thread = ...
+    if type(recipient) ~= "string" then
+        return false, "Recipient must be an IP address or domain name"
     end
-    local destinationWan, destinationLan, message, routerName = ...
-    local router = getRouter(routerName)
-    if router then
-        return router.sendWAN(destinationWan, destinationLan, message)
+    if thread ~= nil and not validThread(thread) then
+        return false, "Thread token must be 64 lowercase hexadecimal characters"
     end
+    if activeConnection and not validMessage(message) then
+        return false, "Message must be a serializable string, number, boolean, or table"
+    end
+    thread = thread or wifi_air_crypto.newToken()
+    local sent, reason
     if activeConnection then
-        return M.sendWAN(destinationWan, destinationLan, message)
+        sent, reason = sendAirRequest({
+            kind = "send",
+            recipient = recipient,
+            message = message,
+            thread = thread,
+        })
+    else
+        local router = getRouter()
+        if not router then
+            return false, "Not connected to a Wi-Fi router"
+        end
+        sent, reason = router.send(recipient, message, thread)
     end
-    return false, "Not connected to a Wi-Fi router"
+    if not sent then
+        return false, reason or "Router could not route message"
+    end
+    return true, thread
 end
 
-function M.receive(timeout, routerName)
+function M.receive(first, second, third)
+    local thread, timeout, routerName
+    if type(first) == "string" then
+        thread, timeout, routerName = first, second, third
+        if not validThread(thread) then
+            error("thread token must be 64 lowercase hexadecimal characters", 2)
+        end
+    else
+        timeout, routerName = first, second
+        if third ~= nil then
+            error("unexpected third argument without a thread token", 2)
+        end
+    end
     if timeout ~= nil and (type(timeout) ~= "number" or timeout < 0) then
         error("timeout must be a non-negative number", 2)
     end
     local router = getRouter(routerName)
     if router then
-        local packet = router.receive()
+        local packet = router.receive(thread)
         if packet or not timeout or timeout == 0 then
             return packet
         end
@@ -585,13 +600,13 @@ function M.receive(timeout, routerName)
         while true do
             local event, eventId = os.pullEvent()
             if event == "wifi_message" then
-                packet = router.receive()
+                packet = router.receive(thread)
                 if packet then
                     os.cancelTimer(timer)
                     return packet
                 end
             elseif event == "timer" and eventId == timer then
-                return router.receive()
+                return router.receive(thread)
             end
         end
     end
@@ -608,7 +623,7 @@ function M.receive(timeout, routerName)
             closeRednet(opened)
             return nil
         end
-        local sent, reason = sendAirPacket(activeConnection, { kind = "receive" })
+        local sent, reason = sendAirPacket(activeConnection, { kind = "receive", thread = thread })
         if not sent then
             closeRednet(opened)
             return nil, reason
@@ -1045,7 +1060,7 @@ function M.run(routerName)
                     router.disconnectAir(senderID)
                 elseif verified and packet.kind == "send" and airClients[senderID]
                         and type(packet.recipient) == "string" then
-                    local ok, sent = pcall(router.sendAir, senderID, packet.recipient, packet.message)
+                    local ok, sent = pcall(router.sendAir, senderID, packet.recipient, packet.message, packet.thread)
                     if not ok then
                         printError("wifi: send failed: " .. tostring(sent))
                     elseif not sent then
@@ -1088,12 +1103,16 @@ function M.run(routerName)
                         domains = router.getKnownDomainRecords(),
                     })
                 elseif verified and packet.kind == "receive" and airClients[senderID] then
-                    local data = router.receiveAir(senderID)
-                    sendAirResponse(senderID, {
-                        kind = "receive_result",
-                        available = type(data) == "table",
-                        data = data,
-                    })
+                    if packet.thread == nil or validThread(packet.thread) then
+                        local data = router.receiveAir(senderID, packet.thread)
+                        sendAirResponse(senderID, {
+                            kind = "receive_result",
+                            available = type(data) == "table",
+                            data = data,
+                        })
+                    else
+                        printError("wifi: rejected invalid receive thread token")
+                    end
                 end
             end
         end
