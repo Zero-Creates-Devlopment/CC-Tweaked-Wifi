@@ -18,9 +18,10 @@ Copy that jar and the CC:Tweaked jar into the Minecraft instance's `mods` folder
 
 ## Router peripheral
 
-The router appears in the Functional Blocks creative tab and can also be crafted from iron, quartz, redstone, and glass. The `wifi` Lua module is installed in ComputerCraft's ROM and automatically exposed as the global `wifi` on every computer. You can also load it explicitly with `require("wifi")`.
+The router appears in the Functional Blocks creative tab and can also be crafted from iron, quartz, redstone, and glass. The `wifi` Lua module is installed in ComputerCraft's ROM. Load it explicitly in each computer program with `require("wifi")`.
 
 ```lua
+local wifi = require("wifi")
 local connected, reason = wifi.connect("MC-WiFi", "")
 assert(connected, reason)
 print(textutils.serialize(wifi.getStatus()))
@@ -30,6 +31,7 @@ assert(wifi.registerDomain("base.local"))
 Change the router's SSID and password from an attached computer with:
 
 ```lua
+local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 ```
 
@@ -42,6 +44,7 @@ Client joins require a modem. `wifi.connect(ssid, password)` discovers and joins
 For a wireless client, use the module to access the assigned LAN address and exchange local messages:
 
 ```lua
+local wifi = require("wifi")
 assert(wifi.connect("WorkshopNet", "change-me-123"))
 print("LAN IP:", wifi.getIP())
 wifi.send("192.168.1.101", { message = "hello" })
@@ -51,6 +54,7 @@ local packet = wifi.receive()
 To list discoverable routers with a wireless modem and no router peripheral:
 
 ```lua
+local wifi = require("wifi")
 local nearby, reason = wifi.listNearbyRouters()
 assert(nearby, reason)
 for _, item in ipairs(nearby) do
@@ -104,6 +108,7 @@ Loaded routers automatically share domain records and route messages server-wide
 For wireless clients, run the module on an attached computer with a wireless CC:Tweaked modem:
 
 ```lua
+local wifi = require("wifi")
 wifi.run()
 ```
 
@@ -112,18 +117,21 @@ wifi.run()
 Register a domain on the destination computer:
 
 ```lua
+local wifi = require("wifi")
 assert(wifi.registerDomain("storage.example"))
 ```
 
 The name is available to other loaded routers. Send to that computer from a wired or air-connected client with:
 
 ```lua
+local wifi = require("wifi")
 wifi.send("storage.example", { message = "hello" })
 ```
 
 Domains must be unique across loaded routers. To broadcast and receive replies in one conversation:
 
 ```lua
+local wifi = require("wifi")
 local sent, thread = wifi.send("22.145.56.55", "hello everyone")
 assert(sent, thread)
 local reply = wifi.receive(thread, 5)

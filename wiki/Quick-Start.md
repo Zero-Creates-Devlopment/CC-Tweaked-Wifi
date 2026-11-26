@@ -16,6 +16,7 @@ Place the router and attach a CC:Tweaked computer so it can access the router pe
 On the attached computer, start Lua and configure the LAN:
 
 ```lua
+local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 ```
 
@@ -24,6 +25,7 @@ Replace the example password with a strong one. An empty password creates an ope
 Attach a CC:Tweaked modem to the same computer, then run:
 
 ```lua
+local wifi = require("wifi")
 wifi.run()
 ```
 
@@ -34,6 +36,7 @@ Keep this program running. This same computer can configure and bridge the route
 Give another computer a wireless modem and run:
 
 ```lua
+local wifi = require("wifi")
 local ok, warning = wifi.connect("WorkshopNet", "change-me-123")
 assert(ok, warning)
 if warning then print(warning) end
@@ -48,6 +51,7 @@ Discovery can be inspected with `wifi.listNearbyRouters()`. Air discovery uses b
 On a connected client:
 
 ```lua
+local wifi = require("wifi")
 local ok, warning = wifi.registerDomain("storage.example")
 assert(ok, warning)
 if warning then print(warning) end

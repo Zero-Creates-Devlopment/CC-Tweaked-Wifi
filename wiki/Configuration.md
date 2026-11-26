@@ -28,6 +28,7 @@ An attached computer can inspect these values with `wifi.getNetworkConfig()`. Ai
 From a computer attached to the router:
 
 ```lua
+local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 ```
 
