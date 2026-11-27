@@ -25,6 +25,7 @@ Replace the example password with a strong one. An empty password creates an ope
 Attach a CC:Tweaked modem to the same computer, then run:
 
 ```lua
+local wifi = require("wifi")
 wifi.run()
 ```
 
@@ -50,6 +51,7 @@ Discovery can be inspected with `wifi.listNearbyRouters()`. Air discovery uses b
 On a connected client:
 
 ```lua
+local wifi = require("wifi")
 local ok, warning = wifi.registerDomain("storage.example")
 assert(ok, warning)
 if warning then print(warning) end

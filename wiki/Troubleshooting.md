@@ -19,7 +19,7 @@ Check Minecraft, NeoForge, Java, and CC:Tweaked versions against [Home](Home). C
 ## WAN messages do not arrive
 
 - Both routers must be loaded; routing does not force-load chunks. No link, WAN secret, or modem connection between routers is required.
-- Verify the destination is connected. Use a unique online domain or both the remote WAN address and LAN IP; LAN IPs can repeat on different routers.
+- Verify the destination is connected. Send to the remote WAN address to broadcast, use a unique online domain, or use the legacy targeted WAN and LAN form. LAN IPs can repeat on different routers.
 - Wireless clients need their local bridge running. Check send results and bridge errors.
 - A successful send places the message in the destination inbox, but the application must still read it.
 

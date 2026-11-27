@@ -36,6 +36,10 @@ final class WifiRouterNetwork {
 		routers.remove(router.getWanIP(), router);
 	}
 
+	boolean hasRouter(String wanIP) {
+		return routers.containsKey(wanIP);
+	}
+
 	boolean hasOtherClaim(String domain, String ownerWan) {
 		return routers.values().stream().anyMatch(router -> !router.getWanIP().equals(ownerWan)
 				&& router.localDomains().containsKey(domain));

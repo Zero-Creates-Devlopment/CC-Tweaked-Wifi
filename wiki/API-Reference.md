@@ -1,10 +1,6 @@
 # `wifi` API reference
 
-```lua
-local wifi = require("wifi")
-```
-
-The module is available in CC:Tweaked's ROM. Functions taking `routerName` accept an optional peripheral name; otherwise the module finds an attached router or, where supported, uses the active wireless connection. Configuration, client listing, static IP assignment, network configuration, and the bridge require an attached router.
+The module is installed in CC:Tweaked's ROM and must be loaded explicitly with `require("wifi")`. Functions taking `routerName` accept an optional peripheral name; otherwise the module finds an attached router or, where supported, uses the active wireless connection. Configuration, client listing, static IP assignment, network configuration, and the bridge require an attached router.
 
 ## Connections and discovery
 
@@ -66,19 +62,21 @@ Deletes the local token only; it does not release the reservation. Returns `true
 
 ## Messaging
 
-### `wifi.send(recipient, message)`
+### `wifi.send(recipient, message [, thread])`
 
-Sends to a local LAN IP or a unique online domain on any loaded router. Returns a boolean and may return a reason. Self-sends are rejected.
+Broadcasts to every connected client on a loaded router when `recipient` is its WAN address; on the same router, the sender is excluded. It also supports local LAN IPs and unique online domains. A loaded WAN address takes precedence if it matches a local LAN address. Returns `true, thread` on success or `false, reason` on failure. A new random thread token is generated unless one is supplied. Pass the received `packet.thread` when replying to continue the conversation. Tokens are 64 lowercase hexadecimal characters and are not authentication or confidentiality.
 
 ### `wifi.sendWAN(destination, lanIP, message [, routerName])`
 
-Sends to a WAN address and its LAN IP, or to a domain using `wifi.sendWAN(domain, nil, message)`. The equivalent `wifi.send(destination, lanIP, message [, routerName])` form is also supported. Loaded routers route server-wide without linking. A successful send places the message in the destination inbox, but does not guarantee the application reads it. Wireless clients require their local bridge.
+Legacy targeted send to a WAN address and its LAN IP, or to a domain using `wifi.sendWAN(domain, nil, message)`. These packets do not have a thread token. The old `wifi.send(destination, lanIP, message)` form is no longer supported; use `wifi.sendWAN` for targeted delivery. Loaded routers route server-wide without linking. A successful send places the message in the destination inbox, but does not guarantee the application reads it. Wireless clients require their local bridge.
 
 Messages can be strings, numbers, booleans, or serializable non-cyclic tables. WAN payloads are limited to 64 KiB, 64 levels of nesting, and 65,536 table entries.
 
 ### `wifi.receive([timeout [, routerName]])`
 
-Returns the next queued packet, or `nil` on timeout; failures may also return a reason. Packet fields are `from` and `fromLan` (source LAN IP), `fromWan` (source router WAN address), `domain` (source domain or `""`), and `message`. There is no timestamp. Use both `fromWan` and `fromLan` to reply across routers.
+Returns the next queued packet, or `nil` on timeout; failures may also return a reason. Packet fields are `from` and `fromLan` (source LAN IP), `fromWan` (source router WAN address), `domain` (source domain or `""`), `message`, and `thread` (absent on legacy sends). There is no timestamp.
+
+`wifi.receive(thread [, timeout [, routerName]])` returns the next packet with that thread, leaving other packets in the inbox. Receive without a thread to discover the token on the first incoming packet. The sender receives its token as the second return from `wifi.send`.
 
 For attached routers, omitted or zero timeout polls immediately. For wireless clients, an omitted timeout waits, while zero currently returns immediately without polling. A positive timeout works for either connection. The inbox retains messages until read or displaced by newer messages when full.
 
@@ -103,3 +101,29 @@ Sets LAN credentials. The SSID must be nonblank and at most 32 characters; the p
 ### `wifi.run([routerName])`
 
 Runs the bridge loop on an attached computer with at least one wired or wireless modem. Only one computer can bridge a router at a time. Keep it running for wireless clients; server-wide routing itself does not require a bridge.
+
+## HTTP helpers (`wifi_http`)
+
+Load `wifi_http` explicitly with `require("wifi_http")`. It runs HTTP-style requests over `wifi.send`/`wifi.receive` threads: each request starts a new thread and the response returns on the same thread.
+
+### `wifi_http.request(method, host, path [, options])`
+
+Sends a request to a WAN address or domain and waits for the response. `method` is any of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `TRACE`, `CONNECT` (case-insensitive). `options` may contain `headers`, `body`, `timeout` (seconds, default 10) and `router`. Returns `{ status, ok, headers, body, from, thread }` or `nil, reason`. Shortcuts: `wifi_http.get`, `.head`, `.options`, `.delete`, `.trace`, `.connect` take `(host, path [, options])`; `.post`, `.put`, `.patch` take `(host, path, body [, options])`.
+
+### `wifi_http.server()`
+
+Creates a server. Register handlers with `server:get(path, fn)`, `:post`, `:put`, `:patch`, `:delete`, `:head`, `:options`, or `server:route(method, path, fn)` (`"*"` matches any method; a path ending in `*` is a prefix match). `server:default(fn)` handles unmatched requests. Handlers receive `{ method, path, query, rawQuery, headers, body, fromWan, fromLan, thread }` and return `status, body, headers` or a `{ status, body, headers }` table; a lone non-number return value is a 200 body. Unmatched paths return 404, wrong methods 405, and handler errors 500. Run it with `server:run([{ poll, router, stop }])`, which blocks until `stop()` returns true.
+
+```lua
+local wifi_http = require("wifi_http")
+local server = wifi_http.server()
+server:get("/hello", function() return 200, "hi" end)
+server:post("/echo", function(req) return 201, req.body end)
+server:run()
+```
+
+```lua
+local wifi_http = require("wifi_http")
+local response = wifi_http.get("example.com", "/hello")
+print(response.status, response.body)
+```

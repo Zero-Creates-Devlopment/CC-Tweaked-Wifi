@@ -4,7 +4,7 @@ Add configurable Wi-Fi-style networking to your ComputerCraft world with a craft
 
 Routers create separate LANs with assigned IP addresses, domain names mapped to individual computers, and message passing. Loaded routers share domain records automatically across the server, including across dimensions.
 
-The `wifi` Lua module is available globally. Client computers can discover and join routers over the air with a wireless modem, without GPS setup or a wired/peripheral connection. Wireless clients need a bridge computer running `wifi.run()` on their router.
+The `wifi` Lua module is available in CC:Tweaked's ROM and must be loaded with `require("wifi")`. Client computers can discover and join routers over the air with a wireless modem, without GPS setup or a wired/peripheral connection. Wireless clients need a bridge computer running `wifi.run()` on their router.
 
 ## Features
 
@@ -58,6 +58,7 @@ print(sent, reason)
 
 On the destination computer, read the next packet:
 ```lua
+local wifi = require("wifi")
 local packet, reason = wifi.receive(5)
 if packet then
   print(textutils.serialize(packet))

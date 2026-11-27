@@ -18,11 +18,10 @@ Copy that jar and the CC:Tweaked jar into the Minecraft instance's `mods` folder
 
 ## Router peripheral
 
-The router appears in the Functional Blocks creative tab and can also be crafted from iron, quartz, redstone, and glass. The `wifi` Lua module is installed globally in ComputerCraft's ROM, so `require("wifi")` works on any computer, whether or not a router peripheral is attached.
+The router appears in the Functional Blocks creative tab and can also be crafted from iron, quartz, redstone, and glass. The `wifi` Lua module is installed in ComputerCraft's ROM. Load it explicitly in each computer program with `require("wifi")`.
 
 ```lua
 local wifi = require("wifi")
-
 local connected, reason = wifi.connect("MC-WiFi", "")
 assert(connected, reason)
 print(textutils.serialize(wifi.getStatus()))
@@ -32,6 +31,7 @@ assert(wifi.registerDomain("base.local"))
 Change the router's SSID and password from an attached computer with:
 
 ```lua
+local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 ```
 
@@ -54,6 +54,7 @@ local packet = wifi.receive()
 To list discoverable routers with a wireless modem and no router peripheral:
 
 ```lua
+local wifi = require("wifi")
 local nearby, reason = wifi.listNearbyRouters()
 assert(nearby, reason)
 for _, item in ipairs(nearby) do
@@ -72,8 +73,9 @@ Use the `wifi` Lua module as the complete interface:
 - `wifi.setStaticIP(address)` assigns a LAN address; `wifi.getNetworkConfig()` returns server limits and timing; `wifi.getClients()` lists LAN clients.
 - `wifi.registerDomain(name)` reserves a domain and activates it for this computer. `wifi.resolve(name)` returns the LAN IP for a unique online domain on a loaded router, or an empty string if it is offline, unavailable, or ambiguous. `wifi.getDomainRecords()` lists loaded routers' reservations, including offline records with `lanIP = ""` and `online = false`. Air lookups require a running bridge.
 - `wifi.exportDomainToken(name)` returns a saved ownership token; `wifi.importDomainToken(name, token)` imports a backup. `wifi.releaseDomain(name)` releases a reservation on the connected router. `wifi.forgetDomainToken(name)` deletes only the local token, not the reservation.
-- `wifi.send(recipient, message)` sends to a LAN IP or domain. `wifi.sendWAN(destination, lanIP, message)` sends directly by WAN address and LAN IP, or use `wifi.sendWAN(domain, nil, message)` for a registered domain.
-- `wifi.receive(timeout)` receives queued LAN or WAN packets. `wifi.run()` runs the router bridge.
+- `wifi.send(recipient, message[, thread])` broadcasts to a WAN address or sends to a LAN IP or domain. It returns a conversation token on success.
+- `wifi.receive(timeout)` receives the next packet; `wifi.receive(thread, timeout)` selects a conversation without removing other messages. `wifi.run()` runs the router bridge.
+- The legacy `wifi.sendWAN(destination, lanIP, message)` remains available for targeted WAN sends.
 
 For air-connected clients, `wifi.send` and `wifi.sendWAN` wait for the bridge to accept or reject the request and return `false` with a reason if routing fails or the bridge does not respond. A successful send places the message in the destination inbox; it does not guarantee the application reads it.
 
@@ -85,7 +87,7 @@ Back up tokens privately with `wifi.exportDomainToken(name)`. To move ownership 
 
 Reservations survive disconnects and server restarts while the router block remains in the world. Loaded routers share offline reservations and prevent new conflicting claims. Reservations on unloaded routers are not visible; independent claims made while a router is unloaded may become ambiguous when it loads again. Each router can retain up to 254 reservations.
 
-An air-connected client can send to a local LAN address or domain with `wifi.send(lanIPOrDomain, message)`. Domains on other loaded routers route automatically across the server; for example, `wifi.send("storage.example", { message = "hello" })` sends a table payload. Explicit WAN sends with `wifi.send(domain, nil, message)` (or `wifi.sendWAN(domain, nil, message)`) are also supported. Use `wifi.receive()` for both: it returns the next LAN or WAN packet, with `from`, `fromLan`, `fromWan`, `domain`, and `message` fields. Wireless clients still need their local bridge running.
+An air-connected client can use `wifi.send(recipient, message)` with a local LAN address, domain, or WAN address. A WAN address broadcasts to every connected client on that router. Use `wifi.receive()` to read packets; wireless clients still need their local bridge running.
 
 ### Server configuration
 
@@ -123,10 +125,19 @@ The name is available to other loaded routers. Send to that computer from a wire
 
 ```lua
 local wifi = require("wifi")
-wifi.sendWAN("storage.example", nil, { message = "hello" })
+wifi.send("storage.example", { message = "hello" })
 ```
 
-The second argument must be `nil` when the first argument is a domain. Domains must be unique across loaded routers.
+Domains must be unique across loaded routers. To broadcast and receive replies in one conversation:
+
+```lua
+local wifi = require("wifi")
+local sent, thread = wifi.send("22.145.56.55", "hello everyone")
+assert(sent, thread)
+local reply = wifi.receive(thread, 5)
+```
+
+Recipients can read an incoming packet with `wifi.receive(5)` and reply with `wifi.send(packet.fromWan, "hello", packet.thread)`. A WAN reply also broadcasts to every connected client on the sender's router. Thread tokens correlate messages; they are not authentication or confidentiality.
 
 Messages may be strings, numbers, booleans, or serializable Lua tables (including nested tables); nil, functions, userdata, and cyclic tables are rejected. WAN messages are limited to 64 KiB, 64 levels of nesting, and 65,536 table entries. The receiving computer reads the packet with `receive()`. A failed route returns `false`. Since LAN IPs can repeat across routers, send to a remote computer by its domain rather than by the IP returned by `wifi.resolve`.
 

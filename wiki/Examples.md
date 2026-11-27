@@ -1,6 +1,6 @@
 # Examples
 
-These examples use `require("wifi")`. Configure a router and run its bridge as shown in [Quick Start](Quick-Start). Replace example credentials with your own.
+Load the `wifi` API explicitly with `require("wifi")`. Configure a router and run its bridge as shown in [Quick Start](Quick-Start). Replace example credentials with your own.
 
 ## Discover and connect
 
@@ -50,25 +50,31 @@ assert(ok, reason)
 
 Both computers must already be connected. The domain may belong to any loaded router on the server. A successful send places the message in the destination inbox.
 
-## Reply using the source router
+## WAN broadcast and conversation threads
 
-LAN addresses can repeat across routers. After receiving a packet, reply locally by LAN IP or remotely using both source addresses:
+Send to a router's WAN address to reach all its connected clients:
 
 ```lua
+local wifi = require("wifi")
+local ok, thread = wifi.send("22.145.56.55", "hello")
+assert(ok, thread)
+local reply = wifi.receive(thread, 5)
+if reply then print(reply.message) end
+```
+
+Each recipient can receive the first message without a filter and reuse its token:
+
+```lua
+local wifi = require("wifi")
 local packet, reason = wifi.receive(5)
 if reason then error(reason) end
-if packet then
-    local ok, sendReason
-    if packet.fromWan == wifi.getWanIP() then
-        ok, sendReason = wifi.send(packet.fromLan, "ack")
-    else
-        ok, sendReason = wifi.sendWAN(packet.fromWan, packet.fromLan, "ack")
-    end
-    assert(ok, sendReason)
+if packet and packet.thread then
+    local ok, result = wifi.send(packet.fromWan, "ack", packet.thread)
+    assert(ok, result)
 end
 ```
 
-This snippet assumes `wifi` is already required and connected. Wireless clients need their local bridge running.
+Replies to a WAN address are also broadcasts. The snippets require `wifi` explicitly and assume the computer is connected. Wireless clients need their local bridge running.
 
 ## Inspect reservations
 
