@@ -3,7 +3,7 @@ plugins {
     id 'net.neoforged.moddev' version '1.0.21'
 }
 
-version = '2.2.4'
+version = '2.2.5'
 base.archivesName = "wifi"
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)

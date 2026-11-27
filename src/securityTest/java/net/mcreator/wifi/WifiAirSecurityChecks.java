@@ -10,6 +10,7 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -275,6 +276,26 @@ public final class WifiAirSecurityChecks {
 		public boolean deliverWan(Map<String, Object> packet) {
 			received = packet;
 			return true;
+		}
+
+		@Override
+		public WifiRouterNetwork.RouterAdminInfo adminInfo() {
+			return new WifiRouterNetwork.RouterAdminInfo(wan, "", 0, domains.size(), false);
+		}
+
+		@Override
+		public ArrayList<WifiRouterNetwork.ClientAdminInfo> adminClients() {
+			return new ArrayList<>();
+		}
+
+		@Override
+		public boolean disconnectClient(String lanIP) {
+			return false;
+		}
+
+		@Override
+		public int disconnectAllClients() {
+			return 0;
 		}
 	}
 }

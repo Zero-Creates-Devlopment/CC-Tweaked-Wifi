@@ -1,11 +1,10 @@
-﻿package net.mcreator.wifi;
+package net.mcreator.wifi;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.permissions.Permissions;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 import java.util.ArrayList;
@@ -18,7 +17,7 @@ final class WifiAdminCommands {
 	static void register(RegisterCommandsEvent event) {
 		CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
 		var command = Commands.literal("wifi")
-				.requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER));
+				.requires(source -> source.hasPermission(Commands.LEVEL_GAMEMASTERS));
 		command.then(Commands.literal("routers").executes(context -> listRouters(context.getSource())));
 		command.then(Commands.literal("info")
 				.then(Commands.argument("wanIP", StringArgumentType.word())
