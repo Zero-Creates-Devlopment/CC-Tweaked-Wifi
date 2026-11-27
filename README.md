@@ -18,7 +18,7 @@ Copy that jar and the CC:Tweaked jar into the Minecraft instance's `mods` folder
 
 ## Router peripheral
 
-The router appears in the Functional Blocks creative tab and can also be crafted from iron, quartz, redstone, and glass. The `wifi` Lua module is installed globally in ComputerCraft's ROM, so `require("wifi")` works on any computer, whether or not a router peripheral is attached.
+The router appears in the Functional Blocks creative tab and can also be crafted from iron, quartz, redstone, and glass. The `wifi` Lua module is installed in ComputerCraft's ROM. Load it in each program with `require("wifi")`; it works whether or not a router peripheral is attached.
 
 ```lua
 local wifi = require("wifi")
@@ -32,6 +32,7 @@ assert(wifi.registerDomain("base.local"))
 Change the router's SSID and password from an attached computer with:
 
 ```lua
+local wifi = require("wifi")
 assert(wifi.configureWifi("WorkshopNet", "change-me-123"))
 ```
 
@@ -54,6 +55,7 @@ local packet = wifi.receive()
 To list discoverable routers with a wireless modem and no router peripheral:
 
 ```lua
+local wifi = require("wifi")
 local nearby, reason = wifi.listNearbyRouters()
 assert(nearby, reason)
 for _, item in ipairs(nearby) do
@@ -130,6 +132,7 @@ wifi.send("storage.example", { message = "hello" })
 Domains must be unique across loaded routers. To broadcast and receive replies in one conversation:
 
 ```lua
+local wifi = require("wifi")
 local sent, thread = wifi.send("22.145.56.55", "hello everyone")
 assert(sent, thread)
 local reply = wifi.receive(thread, 5)

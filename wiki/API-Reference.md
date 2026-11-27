@@ -4,7 +4,7 @@
 local wifi = require("wifi")
 ```
 
-The module is available in CC:Tweaked's ROM. Functions taking `routerName` accept an optional peripheral name; otherwise the module finds an attached router or, where supported, uses the active wireless connection. Configuration, client listing, static IP assignment, network configuration, and the bridge require an attached router.
+The module is available in CC:Tweaked's ROM and must be loaded explicitly with `require("wifi")`. Functions taking `routerName` accept an optional peripheral name; otherwise the module finds an attached router or, where supported, uses the active wireless connection. Configuration, client listing, static IP assignment, network configuration, and the bridge require an attached router.
 
 ## Connections and discovery
 
@@ -108,7 +108,7 @@ Runs the bridge loop on an attached computer with at least one wired or wireless
 
 ## HTTP helpers (`wifi_http`)
 
-`wifi_http` is available as a global on every computer, with no `require`. It runs HTTP-style requests over `wifi.send`/`wifi.receive` threads: each request starts a new thread and the response returns on the same thread. The module is also available as `require("wifi_http")`.
+Load `wifi_http` explicitly with `require("wifi_http")`. It runs HTTP-style requests over `wifi.send`/`wifi.receive` threads: each request starts a new thread and the response returns on the same thread.
 
 ### `wifi_http.request(method, host, path [, options])`
 
@@ -119,6 +119,7 @@ Sends a request to a WAN address or domain and waits for the response. `method` 
 Creates a server. Register handlers with `server:get(path, fn)`, `:post`, `:put`, `:patch`, `:delete`, `:head`, `:options`, or `server:route(method, path, fn)` (`"*"` matches any method; a path ending in `*` is a prefix match). `server:default(fn)` handles unmatched requests. Handlers receive `{ method, path, query, rawQuery, headers, body, fromWan, fromLan, thread }` and return `status, body, headers` or a `{ status, body, headers }` table; a lone non-number return value is a 200 body. Unmatched paths return 404, wrong methods 405, and handler errors 500. Run it with `server:run([{ poll, router, stop }])`, which blocks until `stop()` returns true.
 
 ```lua
+local wifi_http = require("wifi_http")
 local server = wifi_http.server()
 server:get("/hello", function() return 200, "hi" end)
 server:post("/echo", function(req) return 201, req.body end)
@@ -126,6 +127,7 @@ server:run()
 ```
 
 ```lua
+local wifi_http = require("wifi_http")
 local response = wifi_http.get("example.com", "/hello")
 print(response.status, response.body)
 ```
