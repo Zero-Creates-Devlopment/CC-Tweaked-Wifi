@@ -73,6 +73,7 @@ public class WifiMod {
 		modEventBus.addListener(this::registerCapabilities);
 		modEventBus.addListener(this::addToCreativeTab);
 		NeoForge.EVENT_BUS.addListener(this::onServerStopping);
+		NeoForge.EVENT_BUS.addListener(WifiAdminCommands::register);
 	}
 
 	private void onServerStopping(ServerStoppingEvent event) {

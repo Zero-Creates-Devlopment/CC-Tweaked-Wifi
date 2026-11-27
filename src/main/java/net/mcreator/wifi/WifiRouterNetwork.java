@@ -9,10 +9,18 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 final class WifiRouterNetwork {
+	record RouterAdminInfo(String wanIP, String ssid, int connectedClients, int domainReservations,
+			boolean passwordProtected) {}
+	record ClientAdminInfo(String lanIP, String domain, String connectionType) {}
+
 	interface Router {
 		String getWanIP();
 		Map<String, String> localDomains();
 		boolean deliverWan(Map<String, Object> packet);
+		RouterAdminInfo adminInfo();
+		ArrayList<ClientAdminInfo> adminClients();
+		boolean disconnectClient(String lanIP);
+		int disconnectAllClients();
 	}
 
 	record Route(String wanIP, String lanIP) {}
@@ -38,6 +46,15 @@ final class WifiRouterNetwork {
 
 	boolean hasRouter(String wanIP) {
 		return routers.containsKey(wanIP);
+	}
+
+	ArrayList<Router> routers() {
+		return new ArrayList<>(routers.values());
+	}
+
+	@Nullable
+	Router router(String wanIP) {
+		return routers.get(wanIP);
 	}
 
 	boolean hasOtherClaim(String domain, String ownerWan) {

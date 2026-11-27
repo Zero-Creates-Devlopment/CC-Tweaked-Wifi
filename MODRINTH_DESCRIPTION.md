@@ -71,6 +71,18 @@ Use `wifi.listNearbyRouters()` to discover routers, `wifi.getStatus()` to inspec
 
 Loaded routers communicate across the server without configuration, including across dimensions. Unloaded chunks are not force-loaded. A successful send places a message in the recipient's inbox but does not guarantee the application reads it.
 
+## Administrator Chat Commands
+
+Operators with permission level 2 or higher can use these commands in chat. They only report or manage loaded routers:
+
+- `/wifi routers` lists loaded routers and connected client counts.
+- `/wifi info <wanIP>` shows router security, SSID, client count, and domain reservation count.
+- `/wifi domains` lists domain reservations, including offline records.
+- `/wifi domain <name>` looks up a domain on loaded routers.
+- `/wifi clients <wanIP>` lists clients connected to a router.
+- `/wifi kick <wanIP> <lanIP>` disconnects one client.
+- `/wifi kickall <wanIP>` disconnects all clients from one router.
+
 ## Configuration and Security Notes
 
 Wireless sessions use random server-held keys. Open LAN traffic is authenticated but not encrypted, except ownership tokens, which are always encrypted in transit. Router-to-router messages and domain records remain inside the server and do not use WAN packet encryption. Offline reservations on loaded routers prevent conflicting claims; unloaded routers cannot coordinate, and conflicts become ambiguous when they load. Reservations persist while the router block remains in the world. Protect attached computers, world data, and token backups. Discovery reveals router information, and rednet reveals traffic timing and approximate packet size. Use strong passwords because captured login proofs may allow offline guessing.

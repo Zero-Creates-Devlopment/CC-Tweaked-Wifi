@@ -12,6 +12,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -72,6 +73,7 @@ public final class WifiAirSecurityChecks {
 				&& !WifiRouterPeripheral.validWanRoute("256.98.114.16", "192.168.1.100")
 				&& !WifiRouterPeripheral.validWanRoute("109.98.114.16", "192.168.1.255"),
 				"invalid WAN or LAN destinations must be rejected");
+		checkAdminDisconnect();
 		String threadA = "a".repeat(64);
 		String threadB = "b".repeat(64);
 		Map<String, Object> firstPacket = Map.of("thread", threadA, "message", "first");
@@ -243,6 +245,55 @@ public final class WifiAirSecurityChecks {
 				"broadcast to an empty router must fail");
 	}
 
+	@SuppressWarnings("unchecked")
+	private static void checkAdminDisconnect() throws Exception {
+		WifiRouterPeripheral router = new WifiRouterPeripheral(null);
+		Field wan = WifiRouterPeripheral.class.getDeclaredField("wanIP");
+		wan.setAccessible(true);
+		wan.set(router, WAN);
+		Field clientsField = WifiRouterPeripheral.class.getDeclaredField("clients");
+		clientsField.setAccessible(true);
+		Map<Integer, Object> clients = (Map<Integer, Object>) clientsField.get(router);
+		Class<?> clientClass = Class.forName("net.mcreator.wifi.WifiRouterPeripheral$Client");
+		Constructor<?> wired = clientClass.getDeclaredConstructor(IComputerAccess.class);
+		wired.setAccessible(true);
+		int[] disconnected = { 0 };
+		int[] domainsChanged = { 0 };
+		IComputerAccess computer = (IComputerAccess) Proxy.newProxyInstance(
+				IComputerAccess.class.getClassLoader(), new Class<?>[] { IComputerAccess.class },
+				(proxy, method, args) -> {
+					if (method.getName().equals("getID")) return 1;
+					if (method.getName().equals("queueEvent")) {
+						if ("wifi_disconnected".equals(args[0])) disconnected[0]++;
+						if ("wifi_domains_changed".equals(args[0])) domainsChanged[0]++;
+					}
+					return null;
+				});
+		Object client = wired.newInstance(computer);
+		Field ip = clientClass.getDeclaredField("ip");
+		Field domain = clientClass.getDeclaredField("domain");
+		ip.setAccessible(true);
+		domain.setAccessible(true);
+		ip.set(client, "192.168.1.100");
+		domain.set(client, "home.example");
+		clients.put(1, client);
+		Field bridge = WifiRouterPeripheral.class.getDeclaredField("bridge");
+		bridge.setAccessible(true);
+		bridge.set(router, computer);
+		check(router.adminInfo().connectedClients() == 1
+				&& router.adminClients().equals(java.util.List.of(
+						new WifiRouterNetwork.ClientAdminInfo("192.168.1.100", "home.example", "wired"))),
+				"admin client details were incorrect");
+		check(router.disconnectClient("192.168.1.100") && clients.isEmpty()
+				&& disconnected[0] == 1 && domainsChanged[0] == 1,
+				"admin kick must disconnect the client and refresh domain records");
+		check(!router.disconnectClient("192.168.1.100"), "admin kick must reject an unknown client");
+		clients.put(1, wired.newInstance(computer));
+		ip.set(clients.get(1), "192.168.1.101");
+		check(router.disconnectAllClients() == 1 && clients.isEmpty() && disconnected[0] == 2,
+				"admin kickall must disconnect every connected client");
+	}
+
 	private static void reject(Checked action) throws Exception {
 		try {
 			action.run();
@@ -280,6 +331,26 @@ public final class WifiAirSecurityChecks {
 		public boolean deliverWan(Map<String, Object> packet) {
 			received = packet;
 			return true;
+		}
+
+		@Override
+		public WifiRouterNetwork.RouterAdminInfo adminInfo() {
+			return new WifiRouterNetwork.RouterAdminInfo(wan, "test", 0, 0, false);
+		}
+
+		@Override
+		public ArrayList<WifiRouterNetwork.ClientAdminInfo> adminClients() {
+			return new ArrayList<>();
+		}
+
+		@Override
+		public boolean disconnectClient(String lanIP) {
+			return false;
+		}
+
+		@Override
+		public int disconnectAllClients() {
+			return 0;
 		}
 	}
 }

@@ -101,6 +101,18 @@ NeoForge creates a per-world server config with these options:
 
 Password-protected wireless LAN packets are encrypted and authenticated; open networks authenticate packets but do not encrypt them. The password is authenticated with a challenge response and is never sent over rednet in plaintext. Air reach depends on the CC:Tweaked modem/rednet setup.
 
+### Administrator commands
+
+Operators with permission level 2 or higher can use these commands. They report and manage loaded routers only; unloaded chunks are never loaded:
+
+- `/wifi routers` lists loaded routers and their connected client counts.
+- `/wifi info <wanIP>` shows a loaded router's SSID, security mode, client count, and domain reservation count.
+- `/wifi domains` lists domain reservations on loaded routers, including offline reservations.
+- `/wifi domain <name>` looks up a domain on loaded routers and reports every matching reservation.
+- `/wifi clients <wanIP>` lists the connected clients on a router.
+- `/wifi kick <wanIP> <lanIP>` disconnects a client from a router.
+- `/wifi kickall <wanIP>` disconnects all clients from a router.
+
 ### Server-wide routing
 
 Loaded routers automatically share domain records and route messages server-wide, including across dimensions. No link, WAN secret, or modem connection between routers is required. Unloaded chunks are not force-loaded. Directly attached clients do not need a bridge for router-to-router traffic.

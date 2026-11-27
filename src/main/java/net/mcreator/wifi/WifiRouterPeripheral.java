@@ -328,6 +328,54 @@ public final class WifiRouterPeripheral implements IPeripheral, WifiRouterNetwor
 		return domains;
 	}
 
+	@Override
+	public synchronized WifiRouterNetwork.RouterAdminInfo adminInfo() {
+		return new WifiRouterNetwork.RouterAdminInfo(getWanIP(), ssid, clients.size(), reservations.domains().size(),
+				!password.isEmpty());
+	}
+
+	@Override
+	public synchronized ArrayList<WifiRouterNetwork.ClientAdminInfo> adminClients() {
+		ArrayList<WifiRouterNetwork.ClientAdminInfo> result = new ArrayList<>();
+		for (Client client : clients.values()) {
+			result.add(new WifiRouterNetwork.ClientAdminInfo(client.ip,
+					client.domain == null ? "" : client.domain,
+					client.computer == null ? "wireless" : "wired"));
+		}
+		return result;
+	}
+
+	@Override
+	public synchronized boolean disconnectClient(String lanIP) {
+		Client client = clients.values().stream().filter(candidate -> lanIP.equals(candidate.ip))
+				.findFirst().orElse(null);
+		if (client == null) {
+			return false;
+		}
+		clients.remove(client.computerID);
+		if (client.computer != null) {
+			client.computer.queueEvent("wifi_disconnected", ssid);
+		} else {
+			pendingAirJoins.remove(client.computerID);
+			if (target.getLevel() != null && target.getLevel().getServer() != null) {
+				WifiAirSessions.remove(target.getLevel().getServer(), getWanIP(), client.computerID);
+			}
+		}
+		if (client.domain != null) {
+			notifyDomainsChanged();
+		}
+		return true;
+	}
+
+	@Override
+	public synchronized int disconnectAllClients() {
+		ArrayList<Client> connected = new ArrayList<>(clients.values());
+		for (Client client : connected) {
+			disconnectClient(client.ip);
+		}
+		return connected.size();
+	}
+
 	@LuaFunction(mainThread = true)
 	public final synchronized Map<String, Object> beginAirJoin(IComputerAccess computer, int clientComputerId,
 			String requestedSsid, String clientNonce) throws LuaException {
